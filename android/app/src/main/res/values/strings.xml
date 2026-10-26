@@ -1,0 +1,4 @@
+<resources>
+    <string name="accessibility_service_label">MobilePilot</string>
+    <string name="accessibility_service_description">Allows MobilePilot to inspect the current app interface, capture screen images, perform gestures, and show optional floating controls while enabled.</string>
+</resources>

@@ -21,6 +21,35 @@ Engine.
 > behavior, permissions, OS version, and app restrictions must be tested
 > on real devices.
 
+## Current Implementation Status — 2026-10-26
+
+The project currently has a working **manual Android-control prototype**. It is
+not an AI agent yet: the user selects and runs individual controls from the
+MobilePilot screen; there is no natural-language planner, model connection, or
+tool-calling loop.
+
+| Area | Status | Evidence / limit |
+| --- | --- | --- |
+| Accessibility onboarding and service status | Done | Opens Android Accessibility settings, checks status on return, and opens the command screen when enabled. |
+| UI tree and element actions | Done, basic | Reads accessible elements and supports text-based tap with gesture fallback. Unique-target disambiguation and screen-versioned node IDs are not implemented. |
+| App search and launch | Done, basic | Searches launchable apps by display name and lets the user choose a result. |
+| Screenshot and coordinate control | Done, basic | Captures another app, previews it, selects a point, and queues tap, scroll, horizontal swipe, Back, or text entry. Capture is event-driven and device behavior still needs broader testing. |
+| Focused text entry | Verified on device | On 2026-10-26, `MP_SAFE_TEST_42` was inserted into Chrome's focused address field on a PTP N49. It was not submitted. Password fields are blocked. |
+| Floating controls | Implemented, basic | Accessibility service can show a draggable bubble and action panel, including cancel. Overlay behavior needs more device/app testing. |
+| AI planner, Vision fallback, chat, task history | Not started | No model/API integration, natural-language planning, or persistent task history yet. |
+| Verification and task lifecycle | Partial | Some actions report dispatch status; there is a constrained Android Settings tree-change check. General post-action verification, task states, and recovery are not implemented. |
+
+The latest `flutter analyze`, Android debug build, and installation on the
+connected device succeeded. These checks confirm the current prototype builds;
+they do not satisfy the MVP reliability target or prove broad app compatibility.
+
+After the controller refactor, a PTP N49 smoke run on 2026-10-26 verified app
+launch, UI-tree reading, capture/point tap, floating gestures, focused text entry,
+cancellation and capture expiry/retry. A point-tap window-event cancellation bug
+found during that run was fixed and covered by two regression tests. The native
+suite now passes 40 tests and the Flutter suite passes 16; see
+[Testing](Testing.md) for commands, device observations and harness limitations.
+
 ## 2. Product Experience
 
 ### 2.1 Chat Mode --- Control Center
@@ -46,8 +75,11 @@ The user can inspect the latest screen view and follow each action.
 -   Show whether UI-tree matching or Vision fallback was used
 -   Provide an immediately accessible Stop control
 
-For the MVP, implement an in-app Live View first. Add a floating overlay
-in a later phase.
+The current prototype has a manual in-app screenshot preview and a basic
+floating bubble/action panel. The preview is a single capture, not a live
+stream, and the floating panel is not yet connected to an AI task lifecycle.
+Keep the in-app view as the primary observation surface while hardening the
+floating controls.
 
 ### 2.3 Background Agent --- Continue After Minimizing
 
@@ -221,6 +253,14 @@ Start with a small, typed set of tools.
                                       available, permitted capture
                                       mechanism
 
+  `find_apps`                         Search launcher-visible apps by
+                                      display name and return matching
+                                      candidates for disambiguation
+
+  `launch_app`                        Launch a candidate returned by
+                                      `find_apps`; do not guess an
+                                      unknown package name
+
   `tap_element`                       Tap a UI element identified by
                                       text, resource ID, or a current
                                       node reference
@@ -300,6 +340,9 @@ successful API call does not prove that the intended result occurred.
 
 ## 7. Safety and Permission Boundaries
 
+See [Action Risk Policy](Action-Risk-Policy.md) for the action classification,
+approval, ambiguity, and verification rules.
+
 -   Provide a visible Stop control in the main UI and, where possible,
     the notification or floating panel.
 -   Require user confirmation for sensitive actions such as purchases,
@@ -360,15 +403,20 @@ on day one.
 Goal: prove that an AI can control a real Android phone and that users
 can follow and stop the task.
 
--   [ ] Set up Accessibility Service and a permission onboarding screen.
--   [ ] Read the UI tree and act on supported UI elements.
--   [ ] Add AI Vision fallback and normalized coordinates.
+-   [x] Set up Accessibility Service and a permission onboarding screen.
+-   [x] Read the UI tree and act on supported UI elements (basic manual controls).
+-   [x] Search launchable apps by display name and resolve ambiguous
+        matches before launching.
+-   [x] Add manual screenshot preview and normalized coordinate selection.
+-   [ ] Add AI Vision fallback and validate model-provided coordinates.
 -   [ ] Build the Flutter chat UI and tool-calling flow.
--   [ ] Show task status and verification after each action.
--   [ ] Add a basic in-app Live View using a permitted screenshot
-    mechanism.
--   [ ] Implement Stop, timeouts, and error handling.
--   [ ] Test a repeatable workflow on a real device.
+-   [ ] Show task status and verify the expected result after each action.
+-   [x] Add a basic in-app screenshot preview using Android Accessibility
+    screenshot capture.
+-   [x] Add action timeouts, cancellation for pending actions, and basic
+    error states. A user-visible task-wide Stop flow remains to be built.
+-   [ ] Establish a repeatable end-to-end demo and measure reliability across
+    repeated real-device runs.
 
 ### Phase 2 --- Background Agent
 
@@ -387,13 +435,14 @@ Goal: keep task management independent from the visible chat screen.
 
 Goal: let users observe and manage a task while using other apps.
 
--   [ ] Add a draggable floating bubble, subject to Android overlay
-    permission.
--   [ ] Add a compact panel for task status and Stop.
--   [ ] Show the latest permitted screen capture or action result.
+-   [x] Add a draggable floating bubble and compact action panel through
+    AccessibilityService windows. This implementation does not request a
+    separate overlay permission.
+-   [x] Add basic action controls and cancellation for pending actions.
+-   [ ] Show task-wide status, approvals, and the latest verified result.
 -   [ ] Allow switching between Live View and Chat Mode.
--   [ ] Test overlay behavior, touch handling, and accessibility
-    implications.
+-   [ ] Complete overlay behavior, touch handling, and accessibility testing
+    across supported devices and apps.
 
 ### Phase 4 --- External AI Agents
 
@@ -444,16 +493,19 @@ The MVP is successful when:
 
 ## 12. Recommended Implementation Order
 
-1.  Build a Kotlin spike: read UI tree, tap an element, and verify a
-    screen change.
-2.  Add screenshot capture through a permitted mechanism.
-3.  Implement Vision fallback and coordinate validation.
-4.  Build the agent loop and typed tools.
-5.  Connect the engine to Flutter using Platform Channels.
-6.  Add task state, Stop, and error recovery.
-7.  Demonstrate the workflow on a real Android device.
-8.  Only then expand background execution, floating UI, and external MCP
-    access.
+1.  [x] Build a Kotlin/Flutter device-control spike: read the UI tree,
+    interact with elements, and expose the controls in the app.
+2.  [x] Add screenshot capture through Android Accessibility and a manual
+    in-app preview.
+3.  [ ] Implement Vision fallback and coordinate validation.
+4.  [ ] Build the agent loop and typed AI tools.
+5.  [x] Connect the current device controls to Flutter using Platform
+    Channels.
+6.  [ ] Add persistent task state, task-wide Stop, and recovery.
+7.  [ ] Establish a repeatable real-device workflow and measure its
+    reliability.
+8.  [ ] Harden background execution and floating controls, then add external
+    MCP access.
 
 The most important design principle is to keep the Agent Orchestrator
 separate from the Android Control Engine. That lets MobilePilot evolve

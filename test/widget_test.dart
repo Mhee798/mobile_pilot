@@ -1,30 +1,60 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:mobile_pilot/main.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  TestWidgetsFlutterBinding.ensureInitialized();
+  const channel = MethodChannel('com.mobilepilot/settings');
+  var accessibilityEnabled = false;
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  setUp(() {
+    accessibilityEnabled = false;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          return switch (call.method) {
+            'isAccessibilityServiceEnabled' => accessibilityEnabled,
+            'getFloatingControlsEnabled' => false,
+            _ => null,
+          };
+        });
   });
+
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null);
+  });
+
+  testWidgets(
+    'Disabled accessibility shows setup and can refresh into commands',
+    (tester) async {
+      await tester.pumpWidget(const MobilePilotApp());
+      await tester.pumpAndSettle();
+      expect(find.text('ยังไม่ได้เปิดใช้งาน'), findsOneWidget);
+      expect(find.text('เปิดการตั้งค่า Accessibility'), findsOneWidget);
+
+      accessibilityEnabled = true;
+      await tester.tap(find.byTooltip('ตรวจสอบอีกครั้ง'));
+      await tester.pumpAndSettle();
+      expect(find.text('สั่งงาน'), findsOneWidget);
+      expect(find.byType(AccessibilitySetupPage), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Enabled accessibility opens commands and manual tap still works',
+    (tester) async {
+      accessibilityEnabled = true;
+      await tester.pumpWidget(const MobilePilotApp());
+      await tester.pumpAndSettle();
+      expect(find.byType(CommandPage), findsOneWidget);
+      expect(find.text('ผลทดสอบ: ถูกแตะ 0 ครั้ง'), findsOneWidget);
+
+      final tapButton = find.text('ปุ่มทดสอบการแตะ');
+      await tester.ensureVisible(tapButton);
+      await tester.tap(tapButton);
+      await tester.pump();
+      expect(find.text('ผลทดสอบ: ถูกแตะ 1 ครั้ง'), findsOneWidget);
+    },
+  );
 }
