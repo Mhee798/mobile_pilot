@@ -36,6 +36,21 @@ void main() {
       reason: 'Unlock phone and open the local fixture before running',
     );
   });
+  testWidgets('presence does not match a node below the viewport', (
+    tester,
+  ) async {
+    final nodes = await platform.getUiTree(targetPackage: target);
+    expect(nodes.any((node) => node['resourceId'] == 'offscreen-test'), isTrue);
+    final result = await platform.waitForUi(
+      requestId: 'offscreen-device',
+      targetPackage: target,
+      selector: 'resourceId',
+      value: 'offscreen-test',
+      timeoutMs: 1500,
+    );
+    expect(result?['code'], 'UI_TIMEOUT');
+    debugPrint('DEVICE VERIFIED: Offscreen node did not satisfy visible wait');
+  });
   testWidgets('double tap changes the real fixture', (tester) async {
     await platform.launchApp(target);
     final nodes = await platform.getUiTree(targetPackage: target);
@@ -120,6 +135,59 @@ void main() {
     expect(result?['code'], 'UI_FOUND');
     debugPrint('DEVICE VERIFIED: Drag passed');
   });
+  testWidgets('stopping during hold releases without dragging', (tester) async {
+    final nodes = await platform.getUiTree(targetPackage: target);
+    final start =
+        nodes.firstWhere((n) => n['text'] == 'Drag source')['bounds'] as Map;
+    final end =
+        nodes.firstWhere((n) => n['text'] == 'Drop target')['bounds'] as Map;
+    await platform.armScreenCapture(targetPackage: target);
+    Map<dynamic, dynamic>? screen;
+    for (var i = 0; i < 30 && screen == null; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      screen = await platform.getCapturedScreen();
+    }
+    expect(screen, isNotNull);
+    double x(Map b) =>
+        ((b['left'] as num) + (b['right'] as num)) /
+        2 /
+        (screen!['width'] as int);
+    double y(Map b) =>
+        ((b['top'] as num) + (b['bottom'] as num)) /
+        2 /
+        (screen!['height'] as int);
+    await platform.queueDrag(
+      x: x(start),
+      y: y(start),
+      endX: x(end),
+      endY: y(end),
+      width: screen!['width'] as int,
+      height: screen['height'] as int,
+      rotation: screen['rotation'] as int,
+      packageName: target,
+      holdMs: 2000,
+      durationMs: 800,
+    );
+    final holding = await platform.waitForUi(
+      requestId: 'drag-holding',
+      targetPackage: target,
+      selector: 'text',
+      value: 'Drag holding',
+      timeoutMs: 6000,
+    );
+    expect(holding?['code'], 'UI_FOUND');
+    await platform.cancelScreenActions();
+    final stopped = await platform.waitForUi(
+      requestId: 'drag-stopped',
+      targetPackage: target,
+      selector: 'text',
+      value: 'Drag stopped',
+      timeoutMs: 6000,
+    );
+    expect(stopped?['code'], 'UI_FOUND');
+    expect((await platform.getPointTapResult())?['code'], 'DRAG_CANCELLED');
+    debugPrint('DEVICE VERIFIED: Stop during drag hold prevented movement');
+  });
   testWidgets('select exact input then replace and clear real text', (
     tester,
   ) async {
@@ -178,6 +246,7 @@ void main() {
   testWidgets('keyboard search next and enter affect the real fields', (
     tester,
   ) async {
+    Map<dynamic, dynamic>? screen;
     for (final mode in ['search', 'next', 'enter']) {
       final label = {
         'search': 'Search target',
@@ -203,11 +272,12 @@ void main() {
         action: 'focus',
       );
       await Future<void>.delayed(const Duration(seconds: 1));
-      await platform.armScreenCapture(targetPackage: target);
-      Map<dynamic, dynamic>? screen;
-      for (var i = 0; i < 30 && screen == null; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 300));
-        screen = await platform.getCapturedScreen();
+      if (screen == null) {
+        await platform.armScreenCapture(targetPackage: target);
+        for (var i = 0; i < 60 && screen == null; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+          screen = await platform.getCapturedScreen();
+        }
       }
       expect(screen, isNotNull);
       await platform.queueScreenAction(
@@ -223,19 +293,19 @@ void main() {
         'next': 'Next passed',
         'enter': 'Enter passed',
       }[mode]!;
-      final result = await platform.waitForUi(
-        requestId: 'keyboard-$mode',
-        targetPackage: target,
-        selector: 'text',
-        value: text,
-        timeoutMs: 8000,
-      );
-      if (result?['code'] != 'UI_FOUND') {
-        debugPrint(
-          'Keyboard native result: ${await platform.getPointTapResult()}',
-        );
+      var resultObserved = false;
+      for (var attempt = 0; attempt < 20 && !resultObserved; attempt++) {
+        final tree = await platform.getUiTree(targetPackage: target);
+        resultObserved = tree.any((node) => node['text'] == text);
+        if (!resultObserved) {
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        }
       }
-      expect(result?['code'], 'UI_FOUND', reason: mode);
+      expect(
+        resultObserved,
+        isTrue,
+        reason: '$mode should change fixture text in UI tree',
+      );
       debugPrint('DEVICE VERIFIED: $text');
     }
   });
@@ -325,4 +395,50 @@ void main() {
     debugPrint('DEVICE VERIFIED: Exact fixture field text changed');
     await utility('back');
   });
+  // The device-specific Settings labels are only valid for the Thai HONOR fixture.
+  const runThaiSettingsTest = bool.fromEnvironment(
+    'MOBILEPILOT_THAI_SETTINGS_TEST',
+  );
+  testWidgets('real Settings: scroll to About phone and verify page', (
+    tester,
+  ) async {
+    const settings = 'com.android.settings';
+    await platform.launchApp(settings);
+    final found = await platform.scrollUntilUi(
+      requestId: 'settings-about-scroll',
+      targetPackage: settings,
+      selector: 'text',
+      value: 'เกี่ยวกับโทรศัพท์',
+      timeoutMs: 30000,
+      direction: 'down',
+      maxScrolls: 20,
+      distance: 'long',
+    );
+    expect(
+      found?['code'],
+      'UI_FOUND',
+      reason: 'Scroll to About phone in Thai Settings',
+    );
+    debugPrint(
+      'DEVICE VERIFIED: Settings About found after ${found?['scrollCount']} scrolls',
+    );
+    final action = await platform.tapElementByText(
+      'เกี่ยวกับโทรศัพท์',
+      targetPackage: settings,
+    );
+    expect(action?['code'], 'ACTION_DISPATCHED');
+    final page = await platform.waitForUi(
+      requestId: 'settings-about-page',
+      targetPackage: settings,
+      selector: 'text',
+      value: 'ชื่ออุปกรณ์',
+      timeoutMs: 10000,
+    );
+    expect(
+      page?['code'],
+      'UI_FOUND',
+      reason: 'Verify the About phone screen appeared',
+    );
+    debugPrint('DEVICE VERIFIED: Settings About page opened');
+  }, skip: !runThaiSettingsTest);
 }

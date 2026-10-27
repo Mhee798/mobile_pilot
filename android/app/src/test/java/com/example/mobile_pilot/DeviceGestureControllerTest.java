@@ -51,9 +51,10 @@ public class DeviceGestureControllerTest extends NativeControllerTest {
         verify(service).dispatchGesture(gesture.capture(),callback.capture(),isNull());
         assertTrue(gesture.getValue().getStroke(0).willContinue());assertEquals(750,gesture.getValue().getStroke(0).getDuration());
         callback.getValue().onCompleted(gesture.getValue());
+        verify(service,times(1)).dispatchGesture(any(),any(),isNull());advance(750);
         verify(service,times(2)).dispatchGesture(gesture.capture(),callback.capture(),isNull());
         assertFalse(gesture.getValue().getStroke(0).willContinue());assertEquals(800,gesture.getValue().getStroke(0).getDuration());
-        assertTrue(results.isEmpty());callback.getValue().onCompleted(gesture.getValue());
+        assertTrue(results.isEmpty());callback.getValue().onCompleted(gesture.getValue());advance(750);
         assertEquals("GESTURE_COMPLETED",results.get(0).getCode());
     }
     @Test public void staleDragHoldCallbackDoesNotDispatchAnotherGesture() {
@@ -62,7 +63,7 @@ public class DeviceGestureControllerTest extends NativeControllerTest {
         ArgumentCaptor<GestureDescription> gesture=ArgumentCaptor.forClass(GestureDescription.class);
         ArgumentCaptor<AccessibilityService.GestureResultCallback> callback=ArgumentCaptor.forClass(AccessibilityService.GestureResultCallback.class);
         verify(service).dispatchGesture(gesture.capture(),callback.capture(),isNull());
-        callback.getValue().onCompleted(gesture.getValue());
+        callback.getValue().onCompleted(gesture.getValue());advance(750);
         verify(service,times(1)).dispatchGesture(any(),any(),isNull());assertTrue(results.isEmpty());
     }
     @Test public void cancelledHoldReleasesWithoutDragging() {
@@ -71,9 +72,9 @@ public class DeviceGestureControllerTest extends NativeControllerTest {
         gestures.dragNormalizedPoints(.3,.3,.7,.7,1280,2800,0,750,800,TARGET,()->allowed[0],r->{results.add(r);return Unit.INSTANCE;});
         ArgumentCaptor<GestureDescription> gesture=ArgumentCaptor.forClass(GestureDescription.class);
         ArgumentCaptor<AccessibilityService.GestureResultCallback> callback=ArgumentCaptor.forClass(AccessibilityService.GestureResultCallback.class);
-        verify(service).dispatchGesture(gesture.capture(),callback.capture(),isNull());allowed[0]=false;
-        callback.getValue().onCompleted(gesture.getValue());verify(service,times(2)).dispatchGesture(gesture.capture(),callback.capture(),isNull());
-        assertEquals(1,gesture.getValue().getStroke(0).getDuration());callback.getValue().onCompleted(gesture.getValue());
+        verify(service).dispatchGesture(gesture.capture(),callback.capture(),isNull());
+        callback.getValue().onCompleted(gesture.getValue());advance(300);allowed[0]=false;advance(450);verify(service,times(2)).dispatchGesture(gesture.capture(),callback.capture(),isNull());
+        assertEquals(1,gesture.getValue().getStroke(0).getDuration());callback.getValue().onCompleted(gesture.getValue());advance(750);
         assertEquals("DRAG_CANCELLED",results.get(0).getCode());
     }
     @Test public void changedForegroundReleasesHoldWithoutDragging() {
@@ -82,8 +83,8 @@ public class DeviceGestureControllerTest extends NativeControllerTest {
         ArgumentCaptor<GestureDescription> gesture=ArgumentCaptor.forClass(GestureDescription.class);
         ArgumentCaptor<AccessibilityService.GestureResultCallback> callback=ArgumentCaptor.forClass(AccessibilityService.GestureResultCallback.class);
         verify(service).dispatchGesture(gesture.capture(),callback.capture(),isNull());foreground(PILOT);
-        callback.getValue().onCompleted(gesture.getValue());verify(service,times(2)).dispatchGesture(gesture.capture(),callback.capture(),isNull());
-        assertEquals(1,gesture.getValue().getStroke(0).getDuration());callback.getValue().onCompleted(gesture.getValue());
+        callback.getValue().onCompleted(gesture.getValue());advance(750);verify(service,times(2)).dispatchGesture(gesture.capture(),callback.capture(),isNull());
+        assertEquals(1,gesture.getValue().getStroke(0).getDuration());callback.getValue().onCompleted(gesture.getValue());advance(750);
         assertEquals("DRAG_TARGET_CHANGED",results.get(0).getCode());
     }
     @Test public void doubleTapHasTwoSeparatedContactsAndReportsCompletion() {

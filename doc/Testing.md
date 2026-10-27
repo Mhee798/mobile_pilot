@@ -363,7 +363,7 @@ USB forwarding were removed after testing; the original document was left open.
 1. Serve `integration_test/fixtures` from the repository root with `python -m http.server 8768 --bind 127.0.0.1 --directory integration_test/fixtures`.
 2. Connect and unlock the Android phone, enable MobilePilot Accessibility, and run `adb reverse tcp:8768 tcp:8768`.
 3. Open `http://127.0.0.1:8768/index.html?run=NEW_ID` in Chrome.
-4. Run `flutter test integration_test/device_tools_test.dart -d DEVICE_SERIAL`. Reinstalling the test APK may disable Accessibility on the HONOR: re-enable it while setup is waiting (up to 60 seconds). Keep the screen unlocked.
+4. Run `flutter test integration_test/device_tools_test.dart -d DEVICE_SERIAL`. For the Thai HONOR Settings flow, add `--dart-define=MOBILEPILOT_THAI_SETTINGS_TEST=true`; the Settings case is skipped by default and should only be enabled for a compatible Thai HONOR device. Reinstalling the test APK may disable Accessibility on the HONOR: re-enable it while setup is waiting (up to 60 seconds). Keep the screen unlocked.
 5. Stop the local server, remove `adb reverse`, and rebuild/install the regular `lib/main.dart` application after testing. The integration APK is a test harness, not the normal app UI.
 
 Do not run Flutter device builds and standalone Gradle builds concurrently: on Windows they can contend for the same intermediate files. Never use a UIAutomator dump while a queued action or snapshot reference is in use; the dump may restart Accessibility.
@@ -384,4 +384,13 @@ Final combined device run passed all five tests: double tap; hold-then-drag; exa
 
 ### Refactor and review verification — 2026-10-27
 
-After the tool simplification, the native suite passed 165 tests, Flutter passed 63 tests, `flutter analyze` reported no issues, and the regular Android debug build succeeded. A review identified and prompted fixes for stopping a drag during its hold (including stale callbacks after timeout/disposal), clipping offscreen nodes in presence waits, checking foreground again before the default keyboard action, and recognizing a label inside an enabled clickable ancestor. Regression tests cover these scenarios. The five-device integration run recorded above predates these changes; it was not repeated after this review.
+After the tool simplification, the native suite passed 165 tests, Flutter passed 63 tests, `flutter analyze` reported no issues, and the regular Android debug build succeeded. A review identified and prompted fixes for stopping a drag during its hold (including stale callbacks after timeout/disposal), clipping offscreen nodes in presence waits, checking foreground again before the default keyboard action, and recognizing a label inside an enabled clickable ancestor. Regression tests cover these scenarios. The five-device integration run recorded above predates these changes; see the subsequent device run below.
+
+
+### Post-review device run — 2026-10-27
+
+- Connected HONOR, Thai locale: all 8 integration tests passed after the refactor/review changes. A node below the viewport did not satisfy the visible wait; double tap, normal drag, cancellation during the hold, input focus/replace/clear, keyboard Search/Next/Enter, enabled-button wait, and text-change wait were exercised.
+- The keyboard fixture checks changed text in the accessibility tree because Chrome reported a zero-height rectangle for its result label with the keyboard open; this is not presented as proof that that label was visible on screen.
+- Real Android Settings: opened Settings, scrolled twice to “เกี่ยวกับโทรศัพท์”, clicked it and verified “ชื่ออุปกรณ์” appeared. The Settings test uses the device's Thai locale.
+- Real-device cancellation initially revealed that this device can invoke the first continuing-stroke callback before the requested hold has elapsed. The drag controller now waits for the elapsed hold time before checking cancellation/foreground and dispatching the continuation; a device regression test confirmed Stop releases the contact without moving it.
+- After the fix: 165 Android tests, 63 Flutter tests, analysis, and regular Android debug build passed. The regular app was installed, Accessibility remained bound, the temporary local server/ADB reverse were stopped, and the original USB stay-awake value (0) was restored.

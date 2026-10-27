@@ -9,10 +9,12 @@
 <script>
 const source=document.getElementById('source');let started=0;
 source.oncontextmenu=e=>e.preventDefault();
-source.onpointerdown=e=>{started=performance.now();source.setPointerCapture(e.pointerId);};
-source.onpointerup=e=>{const b=document.getElementById('drop').getBoundingClientRect();if(performance.now()-started>=500&&e.clientX>=b.left&&e.clientX<=b.right&&e.clientY>=b.top&&e.clientY<=b.bottom)document.getElementById('dragresult').textContent='Drag passed';};
+source.onpointerdown=e=>{started=performance.now();document.getElementById('dragresult').textContent='Drag holding';source.setPointerCapture(e.pointerId);};
+source.onpointerup=e=>{const b=document.getElementById('drop').getBoundingClientRect();if(performance.now()-started>=500&&e.clientX>=b.left&&e.clientX<=b.right&&e.clientY>=b.top&&e.clientY<=b.bottom)document.getElementById('dragresult').textContent='Drag passed';else document.getElementById('dragresult').textContent='Drag stopped';};
 </script>
 
 <form onsubmit="event.preventDefault();document.getElementById('keyresult').textContent='Search passed'"><label>Search <input aria-label="Search target" value="SEARCH_SEED" enterkeyhint="search"></label></form>
 <label>Next <input aria-label="Next target" value="NEXT_SEED" enterkeyhint="next"></label><input aria-label="Next destination" value="DEST_SEED" onfocus="document.getElementById('keyresult').textContent='Next passed'">
-<textarea aria-label="Enter target" onkeydown="if(event.key==='Enter')document.getElementById('keyresult').textContent='Enter passed'">ENTER_SEED</textarea><p id="keyresult">Keyboard ready</p>
+<textarea aria-label="Enter target" onkeydown="if(event.key==='Enter')document.getElementById('keyresult').textContent='Enter passed'">ENTER_SEED</textarea><p id="keyresult" style="position:fixed;top:4px;right:4px;background:white;z-index:6">Keyboard ready</p>
+
+<div style="height:2000px"></div><p id="offscreen-test">Offscreen target</p>

@@ -5,6 +5,9 @@ import android.accessibilityservice.AccessibilityService.GestureResultCallback
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.hardware.display.DisplayManager
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.os.Build
 import android.util.DisplayMetrics
 import android.view.Display
@@ -58,23 +61,29 @@ class DeviceGestureController(private val service: AccessibilityService) {
         }
         val startX=(x*width).toFloat();val startY=(y*height).toFloat()
         val hold=GestureDescription.StrokeDescription(Path().apply { moveTo(startX,startY) },0,holdMs,true)
+        val holdStartedAt = SystemClock.uptimeMillis()
         val accepted=service.dispatchGesture(GestureDescription.Builder().addStroke(hold).build(),object : GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription?) {
-                val root=service.rootInActiveWindow
-                val sameTarget=try { root?.packageName?.toString()==target } finally { root?.recycle() }
-                // A stale callback must not dispatch anything: a newer gesture may be running.
-                val continueDrag = shouldContinue() ?: return
-                val cancelled = !continueDrag
-                val ready=!cancelled && sameTarget && isCapturedDisplayCurrent(width,height,rotation)
-                val path=Path().apply { moveTo(startX,startY);if(ready) lineTo((endX*width).toFloat(),(endY*height).toFloat()) }
-                val stroke=hold.continueStroke(path,0,if(ready) durationMs else 1L,false)
-                val gesture=GestureDescription.Builder().addStroke(stroke).build()
-                // Always release the held contact, even if foreground/display changed during the hold.
-                dispatch(gesture,"Android ลากแล้ว โปรดตรวจผลบนหน้าจอ") { result ->
-                    callback(if (ready) result else if (cancelled)
-                        TapResult(false, "DRAG_CANCELLED", "ยกเลิกการลากและปล่อยนิ้วแล้ว")
-                    else TapResult(false,"DRAG_TARGET_CHANGED","หยุดลากและปล่อยนิ้ว เพราะแอปหรือหน้าจอเปลี่ยน"))
-                }
+                // Some devices report the continuing stroke complete before its duration elapses.
+                // Check cancellation and foreground at the actual end of the hold.
+                val remaining = (holdMs - (SystemClock.uptimeMillis() - holdStartedAt)).coerceAtLeast(0)
+                Handler(Looper.getMainLooper()).postDelayed(Runnable {
+                    val root=service.rootInActiveWindow
+                    val sameTarget=try { root?.packageName?.toString()==target } finally { root?.recycle() }
+                    // A stale callback must not dispatch anything: a newer gesture may be running.
+                    val continueDrag = shouldContinue() ?: return@Runnable
+                    val cancelled = !continueDrag
+                    val ready=!cancelled && sameTarget && isCapturedDisplayCurrent(width,height,rotation)
+                    val path=Path().apply { moveTo(startX,startY);if(ready) lineTo((endX*width).toFloat(),(endY*height).toFloat()) }
+                    val stroke=hold.continueStroke(path,0,if(ready) durationMs else 1L,false)
+                    val gesture=GestureDescription.Builder().addStroke(stroke).build()
+                    // Always release the held contact, even if foreground/display changed during the hold.
+                    dispatch(gesture,"Android ลากแล้ว โปรดตรวจผลบนหน้าจอ") { result ->
+                        callback(if (ready) result else if (cancelled)
+                            TapResult(false, "DRAG_CANCELLED", "ยกเลิกการลากและปล่อยนิ้วแล้ว")
+                        else TapResult(false,"DRAG_TARGET_CHANGED","หยุดลากและปล่อยนิ้ว เพราะแอปหรือหน้าจอเปลี่ยน"))
+                    }
+                }, remaining)
             }
             override fun onCancelled(gestureDescription: GestureDescription?) {
                 callback(TapResult(false,"GESTURE_CANCELLED","Android ยกเลิกการกดค้างก่อนลาก"))

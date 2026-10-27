@@ -741,4 +741,9 @@ All five tools above were implemented and verified sequentially, with a final co
 
 ### Refactor and review — 2026-10-27
 
-The gesture dispatch and keyboard connection handling were simplified, and duplicate pending-status redraws were reduced. Review fixes prevent a cancelled or stale drag hold from continuing, require visible viewport bounds for UI presence, recheck foreground for the default keyboard action, and recognize an enabled clickable ancestor of a matched label. Native 165 tests and Flutter 63 tests passed with analysis and a regular debug build. The earlier five connected-device checks were performed before these review fixes and were not repeated afterward.
+The gesture dispatch and keyboard connection handling were simplified, and duplicate pending-status redraws were reduced. Review fixes prevent a cancelled or stale drag hold from continuing, require visible viewport bounds for UI presence, recheck foreground for the default keyboard action, and recognize an enabled clickable ancestor of a matched label. Native 165 tests and Flutter 63 tests passed with analysis and a regular debug build. The earlier five connected-device checks preceded these review fixes; see the subsequent device run below.
+
+
+### Post-review device verification — 2026-10-27
+
+The connected HONOR passed eight integration cases, including offscreen presence, stopping during drag hold, and a real Thai Settings flow that scrolled twice to About phone, tapped it, and verified the device-name label. Testing exposed an early continuing-stroke callback: drag now waits until the requested hold interval has elapsed before evaluating cancellation and dispatching movement. Native 165 tests, Flutter 63 tests, analysis, and the regular debug build passed after the fix. Keyboard fixture output was verified in the accessibility tree; Chrome reported its label as zero-height while the keyboard was open.
