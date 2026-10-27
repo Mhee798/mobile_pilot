@@ -21,6 +21,7 @@ class ScreenCaptureController(
     private val mainHandler: Handler,
     private val isLikelyTargetAppPackage: (String) -> Boolean,
 ) {
+    private var targetPackage: String? = null
     private var externalCaptureArmed = false
     private var externalCaptureCandidatePackage: String? = null
     private var externalCaptureTimeout: Runnable? = null
@@ -31,42 +32,46 @@ class ScreenCaptureController(
     val isArmed: Boolean get() = externalCaptureArmed
 
     fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val eventPackage = event?.packageName?.toString()
-        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && externalCaptureArmed) {
-            if (SystemClock.elapsedRealtime() >= externalCaptureDeadline) cancelExternalScreenCapture()
+        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || !externalCaptureArmed) return
+        if (SystemClock.elapsedRealtime() >= externalCaptureDeadline) {
+            cancelExternalScreenCapture()
+            return
         }
-        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && externalCaptureArmed) {
-            if (eventPackage != null && eventPackage != service.packageName) {
-                externalCaptureCandidatePackage = eventPackage
-                externalCaptureTimeout?.let(mainHandler::removeCallbacks)
-                val sequence = ++externalCaptureSequence
-                val captureTimeout = Runnable {
-                    if (externalCaptureArmed && SystemClock.elapsedRealtime() >= externalCaptureDeadline) {
-                        cancelExternalScreenCapture()
-                        return@Runnable
-                    }
-                    val candidate = externalCaptureCandidatePackage
-                    if (externalCaptureArmed && sequence == externalCaptureSequence && candidate == eventPackage) {
-                        val capturePackage = activeCapturePackage()
-                        if (capturePackage != null) {
-                            captureScreen { capture ->
-                                if (externalCaptureArmed && sequence == externalCaptureSequence &&
-                                    SystemClock.elapsedRealtime() < externalCaptureDeadline &&
-                                    activeCapturePackage() == capturePackage
-                                ) {
-                                    cancelExternalScreenCapture()
-                                    lastExternalCapture = ExternalScreenCapture(capture, capturePackage)
-                                }
-                            }
+        event.packageName?.toString()?.let(::scheduleCapture)
+    }
+
+    private fun scheduleCapture(candidatePackage: String) {
+        if (candidatePackage == service.packageName ||
+            (targetPackage != null && candidatePackage != targetPackage)
+        ) return
+        externalCaptureCandidatePackage = candidatePackage
+        externalCaptureTimeout?.let(mainHandler::removeCallbacks)
+        val sequence = ++externalCaptureSequence
+        val captureTimeout = Runnable {
+            if (externalCaptureArmed && SystemClock.elapsedRealtime() >= externalCaptureDeadline) {
+                cancelExternalScreenCapture()
+                return@Runnable
+            }
+            if (externalCaptureArmed && sequence == externalCaptureSequence &&
+                externalCaptureCandidatePackage == candidatePackage
+            ) {
+                val capturePackage = activeCapturePackage()
+                if (capturePackage != null) {
+                    captureScreen { capture ->
+                        if (externalCaptureArmed && sequence == externalCaptureSequence &&
+                            SystemClock.elapsedRealtime() < externalCaptureDeadline &&
+                            activeCapturePackage() == capturePackage
+                        ) {
+                            cancelExternalScreenCapture()
+                            lastExternalCapture = ExternalScreenCapture(capture, capturePackage)
                         }
                     }
-                    externalCaptureTimeout = null
                 }
-                externalCaptureTimeout = captureTimeout
-                mainHandler.postDelayed(captureTimeout, 700)
             }
+            externalCaptureTimeout = null
         }
-
+        externalCaptureTimeout = captureTimeout
+        mainHandler.postDelayed(captureTimeout, 700)
     }
 
     private fun activeCapturePackage(): String? {
@@ -77,7 +82,8 @@ class ScreenCaptureController(
             root?.recycle()
         }
         return activePackage?.takeIf {
-            it != service.packageName && isLikelyTargetAppPackage(it)
+            it != service.packageName && isLikelyTargetAppPackage(it) &&
+                (targetPackage == null || targetPackage == it)
         }
     }
 
@@ -153,18 +159,26 @@ class ScreenCaptureController(
         )
     }
 
-    fun armExternalScreenCapture(): TapResult {
+    fun armExternalScreenCapture(): TapResult = armExternalScreenCapture(null)
+
+    fun armExternalScreenCapture(target: String?): TapResult {
+        if (target != null && (target.isBlank() || target == service.packageName)) {
+            return TapResult(false, "INVALID_TARGET", "Select an external target app first.")
+        }
         cancelExternalScreenCapture()
+        targetPackage = target
         externalCaptureArmed = true
         externalCaptureDeadline = SystemClock.elapsedRealtime() + EXTERNAL_CAPTURE_TIMEOUT_MS
         val expiry = Runnable { cancelExternalScreenCapture() }
         externalCaptureExpiry = expiry
         mainHandler.postDelayed(expiry, EXTERNAL_CAPTURE_TIMEOUT_MS)
+        if (target != null) scheduleCapture(target)
         return TapResult(true, "CAPTURE_ARMED", "Switch to the target app within 30 seconds. MobilePilot will capture its screen when it appears.")
     }
 
     fun cancelExternalScreenCapture() {
         externalCaptureArmed = false
+        targetPackage = null
         externalCaptureDeadline = 0L
         externalCaptureCandidatePackage = null
         externalCaptureTimeout?.let(mainHandler::removeCallbacks)

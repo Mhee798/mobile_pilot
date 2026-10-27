@@ -1,0 +1,18 @@
+<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"><title>MobilePilot tool fixture</title>
+<style>body{font:16px sans-serif}h1{font-size:24px;margin:8px}button{padding:16px;font-size:20px;touch-action:manipulation}input{font-size:16px;width:180px}</style>
+<h1>MobilePilot tool fixture</h1><button ondblclick="document.getElementById('result').textContent='Double tap passed'">Double tap target</button><p id="result">Ready</p>
+
+<div style="position:fixed;bottom:8px;right:4px;z-index:5;display:flex"><button style="padding:8px;font-size:12px" id="readybutton" disabled>Ready button</button><button style="padding:8px;font-size:12px" onclick="setTimeout(()=>document.getElementById('readybutton').disabled=false,2000)">Start states</button></div>
+<label>Input target <input id="inputtarget" aria-label="Input target" value="seed" oninput="document.getElementById('inputresult').textContent=this.value?'Field value '+this.value:'Field cleared'"></label><p id="inputresult">Field ready</p>
+<div id="source" style="touch-action:none;user-select:none;background:orange;margin-top:20px;width:200px;height:60px">Drag source</div>
+<div id="drop" style="background:lightblue;margin-top:90px;width:220px;height:70px">Drop target</div><p id="dragresult">Drag ready</p>
+<script>
+const source=document.getElementById('source');let started=0;
+source.oncontextmenu=e=>e.preventDefault();
+source.onpointerdown=e=>{started=performance.now();source.setPointerCapture(e.pointerId);};
+source.onpointerup=e=>{const b=document.getElementById('drop').getBoundingClientRect();if(performance.now()-started>=500&&e.clientX>=b.left&&e.clientX<=b.right&&e.clientY>=b.top&&e.clientY<=b.bottom)document.getElementById('dragresult').textContent='Drag passed';};
+</script>
+
+<form onsubmit="event.preventDefault();document.getElementById('keyresult').textContent='Search passed'"><label>Search <input aria-label="Search target" value="SEARCH_SEED" enterkeyhint="search"></label></form>
+<label>Next <input aria-label="Next target" value="NEXT_SEED" enterkeyhint="next"></label><input aria-label="Next destination" value="DEST_SEED" onfocus="document.getElementById('keyresult').textContent='Next passed'">
+<textarea aria-label="Enter target" onkeydown="if(event.key==='Enter')document.getElementById('keyresult').textContent='Enter passed'">ENTER_SEED</textarea><p id="keyresult">Keyboard ready</p>

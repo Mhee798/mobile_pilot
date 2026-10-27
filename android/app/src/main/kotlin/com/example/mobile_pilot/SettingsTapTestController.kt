@@ -33,7 +33,9 @@ class SettingsTapTestController(
         if (!settingsIsForeground) return
 
         val currentTree = uiTree.readUiTree()
-        val currentSignature = currentTree.toString()
+        val currentSignature = currentTree.map { node ->
+            node.filterKeys { it != "screenId" && it != "nodeId" }
+        }.toString()
         if (settingsTestPhase == "verifying") {
             if (currentSignature != settingsTestBeforeTree) {
                 finishSettingsTapTest(

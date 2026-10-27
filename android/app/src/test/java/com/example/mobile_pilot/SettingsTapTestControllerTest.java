@@ -39,6 +39,20 @@ public class SettingsTapTestControllerTest extends NativeControllerTest {
     }
 
     @Test
+    public void newReferenceIdsAloneDoNotVerifyAUiChange() {
+        begin();
+        when(tree.tapElementByText("Battery"))
+            .thenReturn(new MobilePilotAccessibilityService.TapResult(true, "ACTION_DISPATCHED", "sent"));
+        when(tree.readUiTree()).thenReturn(Collections.singletonList(java.util.Map.of("text", "Battery", "screenId", "old", "nodeId", "node-1")));
+        settings.onAccessibilityEvent(window(TARGET));
+        when(tree.readUiTree()).thenReturn(Collections.singletonList(java.util.Map.of("text", "Battery", "screenId", "new", "nodeId", "node-2")));
+        settings.onAccessibilityEvent(window(TARGET));
+        assertStatus("running");
+        advance(5_000);
+        assertStatus("dispatched_unverified");
+    }
+
+    @Test
     public void missingTargetExpiresAtTwentySeconds() {
         begin();
         advance(19_999);

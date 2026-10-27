@@ -47,11 +47,16 @@ class AppLauncherSection extends StatelessWidget {
               trailing: app['packageName'] == launcher.selectedPackage
                   ? const Icon(Icons.check_circle_outline)
                   : null,
-              onTap: () => launcher.select(app),
+              onTap: launcher.isLaunching || launcher.isSelecting
+                  ? null
+                  : () => launcher.select(app),
             ),
           const SizedBox(height: 8),
           FilledButton.tonalIcon(
-            onPressed: launcher.isLaunching || launcher.selectedPackage == null
+            onPressed:
+                launcher.isLaunching ||
+                    launcher.isSelecting ||
+                    launcher.selectedPackage == null
                 ? null
                 : launcher.launchSelected,
             icon: launcher.isLaunching

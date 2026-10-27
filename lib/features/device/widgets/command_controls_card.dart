@@ -7,12 +7,15 @@ import '../controllers/screen_capture_controller.dart';
 import '../controllers/settings_test_controller.dart';
 import '../controllers/ui_tree_controller.dart';
 import 'app_launcher_section.dart';
+import 'wait_for_ui_section.dart';
+import '../controllers/wait_for_ui_controller.dart';
 import 'floating_controls_toggle.dart';
 
 class CommandControlsCard extends StatelessWidget {
   const CommandControlsCard({
     super.key,
     required this.launcher,
+    required this.uiWait,
     required this.floating,
     required this.capture,
     required this.settings,
@@ -23,6 +26,7 @@ class CommandControlsCard extends StatelessWidget {
   });
 
   final AppLauncherController launcher;
+  final WaitForUiController uiWait;
   final FloatingControlsController floating;
   final ScreenCaptureController capture;
   final SettingsTestController settings;
@@ -41,8 +45,49 @@ class CommandControlsCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             FloatingControlsToggle(floating: floating),
+            Wrap(
+              spacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: floating.isUpdating
+                      ? null
+                      : () => floating.navigate('home'),
+                  icon: const Icon(Icons.home_outlined),
+                  label: const Text('หน้าหลัก Home'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: floating.isUpdating
+                      ? null
+                      : () => floating.navigate('recents'),
+                  icon: const Icon(Icons.recent_actors_outlined),
+                  label: const Text('แอปล่าสุด Recents'),
+                ),
+              ],
+            ),
+            const Text(
+              'นำทางทันทีและยกเลิกคิวที่รออยู่ คำสั่งที่ส่งไปแล้วอาจยังทำงานต่อ',
+            ),
             const Divider(),
             AppLauncherSection(launcher: launcher),
+            Text(launcher.targetStatus),
+            if (launcher.selectedPackage != null) ...[
+              Text(
+                'คำสั่งจะทำกับ ${launcher.selectedLabel} เท่านั้น · ไม่เปิดแอปให้อัตโนมัติ',
+              ),
+              OutlinedButton.icon(
+                onPressed: launcher.isLaunching || launcher.isSelecting
+                    ? null
+                    : launcher.launchSelected,
+                icon: const Icon(Icons.open_in_new),
+                label: Text(
+                  launcher.isLaunching
+                      ? 'กำลังเปิดและรอแอปพร้อม…'
+                      : 'เปิดแอปเป้าหมาย',
+                ),
+              ),
+            ],
+            const Divider(),
+            WaitForUiSection(controller: uiWait),
             const Divider(),
             FilledButton.icon(
               onPressed: tree.isReading ? null : tree.read,
@@ -52,7 +97,11 @@ class CommandControlsCard extends StatelessWidget {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.account_tree_outlined),
-              label: const Text('อ่าน UI tree ของหน้าจอนี้'),
+              label: Text(
+                feedback.targetPackage == null
+                    ? 'อ่าน UI tree ของหน้าจอนี้'
+                    : 'อ่าน UI tree ของแอปเป้าหมาย',
+              ),
             ),
             OutlinedButton.icon(
               onPressed: capture.isCapturing || capture.isWaiting

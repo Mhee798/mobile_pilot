@@ -21,23 +21,28 @@ Engine.
 > behavior, permissions, OS version, and app restrictions must be tested
 > on real devices.
 
-## Current Implementation Status — 2026-10-26
+## Current Implementation Status — 2026-10-27
 
 The project currently has a working **manual Android-control prototype**. It is
-not an AI agent yet: the user selects and runs individual controls from the
+not an AI agent yet: the user runs individual controls or a fixed sequence test from the
 MobilePilot screen; there is no natural-language planner, model connection, or
 tool-calling loop.
 
 | Area | Status | Evidence / limit |
 | --- | --- | --- |
 | Accessibility onboarding and service status | Done | Opens Android Accessibility settings, checks status on return, and opens the command screen when enabled. |
-| UI tree and element actions | Done, basic | Reads accessible elements and supports text-based tap with gesture fallback. Unique-target disambiguation and screen-versioned node IDs are not implemented. |
-| App search and launch | Done, basic | Searches launchable apps by display name and lets the user choose a result. |
+| UI tree and element actions | Done, basic | Exports screenId/nodeId references and supports exact-node click after validating the current bounded tree against its snapshot. Text tap/gesture fallback remains available. References are single-use for exact-node click. |
+| App search, target selection and launch | Implemented, basic | Stores the selected app label/package for this command page. Launch is explicit and confirms a matching foreground root stable for 500 ms, with a 10-second deadline. |
 | Screenshot and coordinate control | Done, basic | Captures another app, previews it, selects a point, and queues tap, scroll, horizontal swipe, Back, or text entry. Capture is event-driven and device behavior still needs broader testing. |
+| Wait for UI conditions | Implemented and device-tested | Exact presence, previously seen disappearance, enabled/clickable buttons, and text changes using a unique stable locator. Bounded polling, cancellation and selected-app checks; no automatic tap. |
+| Two-finger zoom | Implemented and device-tested | Sends simultaneous symmetric finger strokes around a captured center; configurable separation, span ratio, axis and duration, with strict screen-bound checks. |
+| Custom coordinate swipe | Implemented and device-tested | Selects normalized start/end points and 100–3000 ms duration; supports vertical, horizontal and diagonal straight-line swipes using the shared captured-screen queue. |
+| Coordinate long press | Implemented and device-tested | Queues a stationary 500–3000 ms gesture using captured app/display metadata; shares target settling, cancellation and expiry with point taps. |
 | Focused text entry | Verified on device | On 2026-10-26, `MP_SAFE_TEST_42` was inserted into Chrome's focused address field on a PTP N49. It was not submitted. Password fields are blocked. |
 | Floating controls | Implemented, basic | Accessibility service can show a draggable bubble and action panel, including cancel. Overlay behavior needs more device/app testing. |
+| Deterministic command sequence | Implemented, basic | Explicitly launches one selected app, waits, reads a fresh tree, clicks one unique node and waits for a new result. Stops on failure, cancellation or stale references; no AI or persistent recovery. |
 | AI planner, Vision fallback, chat, task history | Not started | No model/API integration, natural-language planning, or persistent task history yet. |
-| Verification and task lifecycle | Partial | Some actions report dispatch status; there is a constrained Android Settings tree-change check. General post-action verification, task states, and recovery are not implemented. |
+| Verification and task lifecycle | Partial | Actions report dispatch status; the fixed sequence checks a newly present UI result. Persistent task state, general semantic verification and recovery are not implemented. |
 
 The latest `flutter analyze`, Android debug build, and installation on the
 connected device succeeded. These checks confirm the current prototype builds;
@@ -47,8 +52,31 @@ After the controller refactor, a PTP N49 smoke run on 2026-10-26 verified app
 launch, UI-tree reading, capture/point tap, floating gestures, focused text entry,
 cancellation and capture expiry/retry. A point-tap window-event cancellation bug
 found during that run was fixed and covered by two regression tests. The native
-suite now passes 40 tests and the Flutter suite passes 16; see
+suite now passes 158 tests and the Flutter suite passes 63; see
 [Testing](Testing.md) for commands, device observations and harness limitations.
+
+### Explicit target-app controls
+
+- Selecting a launcher result establishes the target without opening it. It cancels
+  previous pending native work and invalidates the old screenshot/tree in the UI.
+- The separate **Open target app** button launches the selected package and waits
+  for foreground confirmation. This confirms window presence, not completion of
+  the app's network requests or loading screens.
+- UI-tree reads and text taps carry `targetPackage`, wait at most 10 seconds, and
+  reject a mismatched root. Screenshot requests carry the selected package, wait
+  up to 30 seconds, and can capture an already foreground target without a new
+  window event.
+- Point, swipe, Back and focused text actions remain tied to captured app metadata.
+  A screenshot from another selected target is rejected. Queued actions wait up
+  to 60 seconds and do not launch apps; text never substitutes the most recent app.
+  Pending actions sample the active root every 100 ms and dispatch only after the
+  target package remains foreground for 1.5 seconds. Window events cannot cancel
+  or indefinitely postpone them. Returning to MobilePilot pauses the wait rather
+  than cancelling it; use **Cancel pending commands**, Stop, or wait for expiry.
+- With no selection, existing local-screen/manual test controls remain available.
+  Selection is held for this command page only; it is not persistent task state.
+- `wait_for_ui` now supports visible-element presence. Additional wait conditions
+  and the AI loop are still pending.
 
 ## 2. Product Experience
 
@@ -286,6 +314,113 @@ Start with a small, typed set of tools.
 Keep tool schemas explicit and validate every argument. Do not allow
 arbitrary shell commands or unrestricted code execution from the model.
 
+### Two-finger zoom
+
+`queuePinch` accepts normalized center `x`/`y`, captured display/package metadata,
+`durationMs` (100–3000), `startSpan` (0.05–0.8 of the shorter display side), `scale`
+(0.25–4, excluding 1) and `axis` (`horizontal` or `vertical`). `scale` means final
+finger separation divided by initial separation; the app's actual zoom response
+must be observed independently.
+
+The geometry uses pixels based on the shorter display side, so portrait/landscape
+aspect ratio does not distort finger separation. Both strokes start at time zero
+and have the same duration. All four start/end points must remain inside the
+screen; invalid geometry is rejected without clamping or moving the center.
+
+The red preview pin is the center. The test controls offer enlarge/shrink presets,
+15/20/25/35/50/70/80% starting separation, horizontal/vertical axes and gesture duration. The
+shared captured-screen queue provides target settling, cancellation before dispatch,
+expiry, in-flight exclusion and callback timeout/late-result isolation. It does
+not launch apps or claim that successful dispatch proves a particular zoom level.
+
+Strong presets are available to avoid the small motion of the original defaults:
+**Strong expand** uses 20% initial separation and scale 4 (ending at 80%);
+**Strong shrink** uses 80% initial separation and scale 0.25 (ending at 20%).
+Both use 1000 ms. The preset buttons configure the fields; the user still queues
+the gesture explicitly. The default is the strong expansion profile. Boundary
+validation is unchanged and the center is never silently moved.
+
+### Custom coordinate swipe
+
+`queueSwipe` uses `x`/`y` as the start point and `endX`/`endY` as the end point,
+plus captured `width`, `height`, `rotation`, `packageName` and integer `durationMs`
+(100–3000). Coordinates must be finite, normalized to 0–1 and distinct. A 100 ms
+swipe remains a line gesture, not a tap.
+
+The preview can select either the red start pin or the blue end flag and draws
+its line. Start/end selection does not overwrite the other point. Fresh captures
+and target changes clear both. Tap/long press continue to use the red start pin.
+
+The tool shares target settling, 60-second queue expiry, cancellation, in-flight
+exclusion and completion timeout with coordinate taps/long presses. It validates
+the captured display before dispatch and does not automatically open the app.
+This is a single-finger straight-line swipe, not pinch or multi-touch.
+
+### Coordinate long press
+
+`queueLongPress` accepts normalized `x`/`y`, captured `width`, `height`, `rotation`,
+`packageName` and integer `durationMs` (500–3000). The manual controls offer a
+separate long-press button and duration selector after a screenshot point is
+selected. It does not launch the target app automatically.
+
+The shared point queue waits for 1.5 seconds of target foreground presence, expires
+after 60 seconds if not dispatched, and validates captured display geometry before
+sending the gesture. New queued controls are blocked while a point gesture is in
+flight. A missing Android completion callback times out after duration + 2 seconds;
+late callbacks cannot release a newer gesture or replace its status.
+
+Cancel stops queued work. An already dispatched gesture may finish on Android;
+completion is reported as dispatch evidence, not proof of the requested UI effect.
+Coordinate targeting checks package/display metadata, not a UI-tree fingerprint.
+
+### Implemented `wait_for_ui` subset
+
+The Flutter/native channel method is `waitForUi`. Required arguments are
+`requestId`, `targetPackage`, `selector` (`text`, `contentDescription`, or
+`resourceId`), `value` and `timeoutMs` (1,000–60,000 ms). The test UI offers
+5, 15, 30 and 60 seconds; a target app must be selected first.
+
+The tool polls every 250 ms, inspects only the target foreground root, and matches
+only elements reported as visible. Text/description use trimmed, case-insensitive
+exact equality; resource IDs use case-sensitive exact equality. Value length is
+limited to 200 characters and traversal to 500 nodes / 30 levels. Android's
+`flagReportViewIds` enables native resource-ID reporting where apps expose it.
+
+Terminal codes are `UI_FOUND`, `UI_TIMEOUT` and `UI_CANCELLED`, with request ID,
+target package, elapsed milliseconds and matched metadata on success. Invalid
+arguments return `INVALID_ARGUMENT`; a second concurrent wait is rejected with
+`UI_WAIT_IN_PROGRESS`. No node reference is retained for a later action.
+
+Cancellation is scoped to the request ID. Changing target, floating Stop, page
+disposal or service destruction cancels the wait. The UI ignores stale responses
+and bounds missing channel responses independently of app lifecycle events.
+Presence does not prove that an element is clickable or that all loading is done.
+This tool does not open apps, interact with elements or start the next command.
+
+### Screen and node references
+
+Each `get_ui_tree` entry now includes `screenId`, `nodeId`, `packageName`,
+`visible` and `enabled`, in addition to the existing properties. A read replaces
+all previous references. IDs describe paths within that particular snapshot;
+they are not persistent app identifiers. Android node objects are not retained
+between requests.
+
+`tapElementById` requires all three of `screenId`, `nodeId` and `targetPackage`.
+It waits for the specified app, then compares the fresh bounded tree with the
+saved tree (structure, text, descriptions, resource IDs, bounds and action state).
+A mismatch returns `STALE_SCREEN`; it does not guess another matching label or
+fall back to a coordinate. A successful dispatch consumes the snapshot.
+
+Only visible, enabled, clickable non-input nodes can be clicked this way. The
+button at the end of each exported UI row uses these references. Selecting the
+row text still fills the existing text-target field. The UI clears consumed or
+stale lists, prompting a fresh read.
+
+Validation covers the accessible tree up to 500 visited nodes and depth 30;
+it does not detect changes that Android does not expose. Returning to an
+identical accessible tree is accepted if the reference is still from the latest
+read. Package/window transitions alone do not make identical content stale.
+
 ### Example UI-tree response
 
 ``` json
@@ -293,7 +428,7 @@ arbitrary shell commands or unrestricted code execution from the model.
   "screenId": "screen-12",
   "elements": [
     {
-      "id": "node-42",
+      "nodeId": "node-0.2",
       "text": "Battery",
       "resourceId": "com.android.settings:id/title",
       "clickable": true,
@@ -308,9 +443,8 @@ arbitrary shell commands or unrestricted code execution from the model.
 }
 ```
 
-The `screenId` and node reference are illustrative. The implementation
-should generate its own identifiers and invalidate them when the UI
-changes.
+The response illustrates screen and node references. The implementation generates
+fresh identifiers for each read and rejects tree mismatches before exact-node clicks.
 
 ## 6. Task Lifecycle
 
@@ -337,6 +471,30 @@ Each action should record:
 
 Distinguish between "action dispatched" and "action verified." A
 successful API call does not prove that the intended result occurred.
+
+### Current deterministic sequence test
+
+The command screen now has a five-step test runner: launch the selected app,
+wait for a configured condition, read a fresh tree and uniquely resolve a button,
+click its screen/node reference once, then wait for a configured result. All
+three conditions use the selected text/description/resource-ID selector; waits
+are fixed at 15 seconds each. No next-step click is generated automatically.
+
+The result condition must be absent in the fresh pre-click tree, so an already
+present label cannot falsely verify the click. Missing or ambiguous buttons,
+stale snapshots, rejected clicks and timeouts stop the run; clicks are not retried.
+
+Every tool call carries a run ID bound to the selected package. Android checks
+this lease both before accepting a tool and after foreground waits. Floating Stop,
+the runner Stop button, target changes and service destruction revoke the lease.
+A native 120-second lease expiry bounds abandoned runs. Late responses cannot
+restart a stopped run or overwrite a newer one. Manual tool controls are blocked
+while a run owns the device; the Stop control remains available.
+
+This is an in-memory test runner with status and step messages. It does not
+implement persistent task history, process-death recovery, a general script
+language or the AI agent loop. Normal app switching needs no intermediate user
+button presses; background execution remains subject to Android/service limits.
 
 ## 7. Safety and Permission Boundaries
 
@@ -511,3 +669,76 @@ The most important design principle is to keep the Agent Orchestrator
 separate from the Android Control Engine. That lets MobilePilot evolve
 from an on-device portfolio MVP into a tool that external AI agents can
 use, without replacing the core control logic.
+
+
+### Home / Recents navigation (2026-10-27)
+
+- Added immediate Home and Recents buttons to the command test page and floating controls.
+- Uses Accessibility global actions; no target package, screenshot, or launcher-name assumption is required.
+- Navigation cancels waiting commands and the active command session first. Already dispatched gestures may still finish.
+- Reports Android acceptance/rejection separately from actual screen verification.
+- Verified on the connected HONOR: Home opened the launcher and Recents displayed the task cards. Native suite: 137 tests; Flutter suite: 59 tests; analysis and debug build passed.
+
+
+### Bounded scroll until UI match (2026-10-27)
+
+- The wait-for-UI test section now has an opt-in scroll mode: exact text/content-description/resource-ID selector, up/down direction, 1–40 accepted scroll actions, and a 1–60 second deadline.
+- Start in MobilePilot, then open the selected target app explicitly. The target must remain foreground for 1 second before the first scroll; leaving it afterwards stops the request.
+- Searches visible nodes before scrolling and after each step; returns matched metadata and scrollCount without clicking. Inspects at most 500 nodes / depth 30.
+- Uses the first visible accessibility scroll container in tree order and ACTION_SCROLL_FORWARD/BACKWARD, with 1 second between accepted actions. Multiple panes are not automatically disambiguated; apps without exposed UI/scroll containers return an explicit unsupported/rejected result. No gesture fallback is implied.
+- Stops on match, action rejection/no container, count limit, deadline, cancellation, target change, Home/Recents, page disposal, or service destruction. Stop cannot undo an already dispatched scroll.
+- Conflicting manual actions are rejected during the search; explicit app launch remains available to bring the target forward. Existing queued gestures/capture/settings tests must finish or be cancelled first.
+- Automated coverage: native 137 tests, Flutter 59 tests; analysis and debug build passed.
+
+- Scroll lookup additionally requires a nonempty node rectangle intersecting the root viewport and enclosing scroll containers. This prevents Chrome offscreen DOM nodes marked visible from prematurely completing the search.
+
+- Device verification (HONOR, Chrome local fixture): a target initially below the viewport was found after 5 accepted scrolls on the final run; screenshot confirmed the target on screen. An earlier run returned to MobilePilot mid-search and correctly stopped with SCROLL_TARGET_CHANGED after 7 scrolls. Chrome offscreen-visible regression is covered by a native test.
+
+
+### Adjustable search swipe distance (2026-10-27)
+
+- Added `distance` to scrollUntilUi: `long` (80% visible scroll-container height, UI default), `short` (40%), and `app` (original accessibility scroll action). Older native callers without the field retain `app` behavior.
+- Gesture modes use a 600 ms swipe inside the first visible scroll container clipped to the root viewport, with overlay touch interception disabled during dispatch. Finger travel is configurable; actual content displacement remains app-dependent.
+- The next search waits for gesture completion; cancellation/rejection is surfaced, overlap is prevented, and all original count/time/foreground limits remain. Long swipes retain 20% overlap, but app animation/inertia can still affect coverage.
+- The timeout includes the time spent switching apps: use 30 or 60 seconds for longer searches. UI selection never automatically extends the user's chosen deadline.
+- Verified analysis, debug build, native 137 tests and Flutter 59 tests.
+
+- Connected HONOR verification: default long mode found MobilePilotTarget from the top of the Chrome fixture after 4 swipes; screenshot confirmed the target on screen. Updated APK installed.
+
+
+### Wait for previously seen UI to disappear (2026-10-27)
+
+- `waitForUi` accepts `condition: present | disappeared`, default `present` for existing callers and deterministic sequences.
+- Disappearance requires observing the visible exact match in the selected foreground app first, followed by at least 500 ms of consecutive complete negative scans. Never-seen selectors time out; this is not an immediate absence assertion.
+- A different app, missing root, unreadable children, or bounded traversal truncation resets/blocks absence confirmation. Reappearance resets the 500 ms timer. The original deadline and cancellation/disposal behavior still apply.
+- UI exposes the condition selector; scroll mode explicitly uses presence only. This tool never clicks or launches an app. A vanished loading label is evidence of UI disappearance, not proof of loading/transaction success.
+- Analysis, debug build, native 137 tests and Flutter 59 tests passed.
+
+- Device verification on connected HONOR / Chrome: observed Loading, removed it via the fixture button, then received UI_DISAPPEARED; screenshot confirmed Loading gone and Done displayed. Empty root bounds are also rejected as absence evidence (regression test).
+
+
+### Additional tool completion order
+
+1. Double tap: implemented; native/Flutter checks and real-device fixture passed.
+2. Hold then drag: native/Flutter checks and connected Chrome drop-target test passed; two continuous stroke phases, API 26+.
+3. Select editable field and replace/clear text: native/Flutter checks and connected Chrome focus/replace/clear test passed.
+4. Keyboard editor actions: native/Flutter checks and device Search, Next/Tab, Enter tests passed.
+5. Wait for enabled/text-change states: native/Flutter checks and connected-device state-change tests passed.
+
+The connected-device integration suite lives in `integration_test/device_tools_test.dart` and uses a dedicated local Chrome fixture. It tests actual UI effects rather than treating dispatch acceptance as proof.
+
+
+### Additional manual tools completed — 2026-10-27
+
+All five tools above were implemented and verified sequentially, with a final combined run of five connected-device integration tests passing on the HONOR / Chrome fixture. The native suite passes 158 tests and Flutter unit/widget suite passes 63. This establishes the tested fixture behavior, not universal app compatibility. AI integration remains out of scope.
+
+- **Double tap:** `queueDoubleTap` shares captured app/display validation, target settling, cancellation and in-flight tracking. One gesture contains two 60 ms contacts starting at 0 and 140 ms. Android 7+.
+- **Hold then drag:** `queueDrag` uses a stationary continued stroke (500–2000 ms hold) followed by a continuous movement (100–3000 ms). Both endpoints use captured normalized coordinates. It rechecks foreground/display after holding and releases without moving if they changed. Android 8+. UI uses red/blue swipe endpoints and a separate hold duration.
+- **Exact editable field:** `editElementById` supports focus/replace/clear with a fresh screenId/nodeId and selected target. It validates the snapshot fingerprint, editable/enabled/visible state, consumes the reference before dispatch, and blocks password fields. Text is bounded to 2000 characters; clear sends an empty string. Read a fresh tree after each action. The UI exposes these actions in each editable row's menu.
+- **Keyboard:** `queueScreenAction(action: keyboard, text: default|search|next|enter)` operates only on the target's focused, enabled, non-password editor. Default invokes the exposed IME node action (Android 11+). Explicit modes require Android 13+ and a matching accessibility InputConnection. Search/Next must match the editor's advertised action. Next explicitly sends balanced Tab key events because Chrome ignored `performEditorAction(NEXT)` in the device fixture; Enter sends balanced Enter events. Dispatch does not guarantee an app effect or submission success.
+- **More wait states:** `waitForUi(condition: enabled)` requires a visible enabled/clickable button stable for 500 ms. `condition: textChanged` requires a unique resourceId/contentDescription locator, records its first text, and waits for a different value stable for 500 ms. Missing nodes do not count as changed text; ambiguous matches fail explicitly; incomplete scans and wrong-app roots cannot satisfy a state wait. No click follows success.
+
+
+### Refactor and review — 2026-10-27
+
+The gesture dispatch and keyboard connection handling were simplified, and duplicate pending-status redraws were reduced. Review fixes prevent a cancelled or stale drag hold from continuing, require visible viewport bounds for UI presence, recheck foreground for the default keyboard action, and recognize an enabled clickable ancestor of a matched label. Native 165 tests and Flutter 63 tests passed with analysis and a regular debug build. The earlier five connected-device checks were performed before these review fixes and were not repeated afterward.

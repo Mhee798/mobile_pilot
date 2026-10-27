@@ -8,6 +8,28 @@ class FloatingControlsController extends DeviceController {
   bool isEnabled = false;
   bool isUpdating = false;
 
+  Future<void> navigate(String action) async {
+    if (isUpdating) return;
+    update(() => isUpdating = true);
+    try {
+      final response = await platform.navigateGlobally(action);
+      if (mounted) {
+        update(
+          () => feedback.message =
+              response?['message'] as String? ?? 'ส่งคำสั่งแล้ว',
+        );
+      }
+    } on PlatformException catch (error) {
+      if (mounted) update(() => feedback.message = error.message ?? error.code);
+    } on MissingPluginException {
+      if (mounted) {
+        update(() => feedback.message = 'ต้อง build Android ใหม่ก่อน');
+      }
+    } finally {
+      if (mounted) update(() => isUpdating = false);
+    }
+  }
+
   Future<void> load() async {
     try {
       final enabled = await platform.getFloatingControlsEnabled();

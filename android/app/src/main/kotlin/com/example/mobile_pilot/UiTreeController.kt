@@ -10,56 +10,20 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.example.mobile_pilot.MobilePilotAccessibilityService.TapResult
 
 class UiTreeController(private val service: AccessibilityService) {
-    fun readUiTree(): List<Map<String, Any?>> {
-        val root = service.rootInActiveWindow ?: return emptyList()
-        val elements = mutableListOf<Map<String, Any?>>()
+    private val snapshots = UiSnapshotController(service)
 
-        fun visit(node: AccessibilityNodeInfo, depth: Int) {
-            if (depth > MAX_TREE_DEPTH || elements.size >= MAX_TREE_ELEMENTS) return
+    fun invalidateSnapshot() = snapshots.invalidate()
+    fun readUiTree(): List<Map<String, Any?>> = readUiTreeForPackage(null)
+    fun readUiTreeForPackage(targetPackage: String?): List<Map<String, Any?>> = snapshots.read(targetPackage)
+    fun tapElementById(screenId: String, nodeId: String, targetPackage: String): TapResult =
+        snapshots.tap(screenId, nodeId, targetPackage)
 
-            val text = node.text?.toString()?.takeIf(String::isNotBlank)
-            val description = node.contentDescription?.toString()?.takeIf(String::isNotBlank)
-            val resourceId = node.viewIdResourceName
-            if (text != null || description != null || resourceId != null) {
-                val bounds = Rect()
-                node.getBoundsInScreen(bounds)
-                elements += mapOf(
-                    "text" to text,
-                    "contentDescription" to description,
-                    "resourceId" to resourceId,
-                    "className" to node.className?.toString(),
-                    "clickable" to node.isClickable,
-                    "editable" to node.isEditable,
-                    "depth" to depth,
-                    "bounds" to mapOf(
-                        "left" to bounds.left,
-                        "top" to bounds.top,
-                        "right" to bounds.right,
-                        "bottom" to bounds.bottom,
-                    ),
-                )
-            }
+    fun editElementById(screenId: String,nodeId: String,targetPackage: String,action: String,text: String): TapResult =
+        snapshots.edit(screenId,nodeId,targetPackage,action,text)
 
-            for (index in 0 until node.childCount) {
-                if (elements.size >= MAX_TREE_ELEMENTS) break
-                val child = node.getChild(index) ?: continue
-                try {
-                    visit(child, depth + 1)
-                } finally {
-                    child.recycle()
-                }
-            }
-        }
+    fun tapElementByText(target: String): TapResult = tapElementForPackage(target, null)
 
-        try {
-            visit(root, 0)
-        } finally {
-            root.recycle()
-        }
-        return elements
-    }
-
-    fun tapElementByText(target: String): TapResult {
+    fun tapElementForPackage(target: String, targetPackage: String?): TapResult {
         val normalizedTarget = target.trim()
         if (normalizedTarget.isEmpty()) {
             return TapResult(false, "EMPTY_TARGET", "Enter text to tap.")
@@ -67,6 +31,10 @@ class UiTreeController(private val service: AccessibilityService) {
 
         val root = service.rootInActiveWindow
             ?: return TapResult(false, "NO_ACTIVE_WINDOW", "No active window is available.")
+        if (targetPackage != null && root.packageName?.toString() != targetPackage) {
+            root.recycle()
+            return TapResult(false, "TARGET_NOT_READY", "Target app is no longer foreground.")
+        }
         val candidates = linkedMapOf<String, AccessibilityNodeInfo>()
         var matchedInput = false
 
@@ -143,7 +111,7 @@ class UiTreeController(private val service: AccessibilityService) {
 
         val candidate = candidates.values.first()
         val accepted = try {
-            candidate.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            if (isTargetForeground(targetPackage)) candidate.performAction(AccessibilityNodeInfo.ACTION_CLICK) else false
         } finally {
             candidate.recycle()
         }
@@ -154,7 +122,10 @@ class UiTreeController(private val service: AccessibilityService) {
         }
     }
 
-    fun tapElementByTextWithGesture(target: String, callback: (TapResult) -> Unit) {
+    fun tapElementByTextWithGesture(target: String, callback: (TapResult) -> Unit) =
+        tapElementWithGestureForPackage(target, null, callback)
+
+    fun tapElementWithGestureForPackage(target: String, targetPackage: String?, callback: (TapResult) -> Unit) {
         val normalizedTarget = target.trim()
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
             callback(TapResult(false, "GESTURES_UNSUPPORTED", "Gesture fallback requires Android 7.0 or later."))
@@ -166,6 +137,11 @@ class UiTreeController(private val service: AccessibilityService) {
             return
         }
 
+        if (targetPackage != null && root.packageName?.toString() != targetPackage) {
+            root.recycle()
+            callback(TapResult(false, "TARGET_NOT_READY", "Target app is no longer foreground."))
+            return
+        }
         val candidates = linkedMapOf<String, Rect>()
         var matchedInput = false
 
@@ -232,6 +208,10 @@ class UiTreeController(private val service: AccessibilityService) {
             return
         }
 
+        if (!isTargetForeground(targetPackage)) {
+            callback(TapResult(false, "TARGET_NOT_READY", "Target app is no longer foreground."))
+            return
+        }
         val bounds = candidates.values.first()
         val path = Path().apply { moveTo(bounds.exactCenterX(), bounds.exactCenterY()) }
         val gesture = GestureDescription.Builder()
@@ -251,6 +231,12 @@ class UiTreeController(private val service: AccessibilityService) {
             null,
         )
         if (!accepted) callback(TapResult(false, "GESTURE_REJECTED", "Android rejected the gesture."))
+    }
+
+    private fun isTargetForeground(targetPackage: String?): Boolean {
+        if (targetPackage == null) return true
+        val root = service.rootInActiveWindow
+        return try { root?.packageName?.toString() == targetPackage } finally { root?.recycle() }
     }
 
     companion object {

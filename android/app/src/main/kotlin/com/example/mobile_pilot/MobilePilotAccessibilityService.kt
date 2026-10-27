@@ -20,12 +20,15 @@ class MobilePilotAccessibilityService : AccessibilityService() {
         this, mainHandler, ::performFloatingAction, ::cancelPendingCommands,
     )
 
+    private val sessions = CommandSessionController(mainHandler, ::cancelPendingCommands)
     private val uiTree = UiTreeController(this)
     private val gestures = DeviceGestureController(this)
     private val settingsTest = SettingsTapTestController(this, mainHandler, uiTree)
+    private val uiWait = WaitForUiController(this, mainHandler, ScrollGestureController(this, floatingControls))
+    private val targetApps = TargetAppController(mainHandler)
     private val screenCapture = ScreenCaptureController(this, mainHandler, ::isLikelyTargetAppPackage)
     private val actionQueue = DeviceActionQueue(
-        this, mainHandler, floatingControls, gestures, ::isLikelyTargetAppPackage,
+        this, mainHandler, floatingControls, gestures,
     )
 
     override fun onServiceConnected() {
@@ -35,7 +38,6 @@ class MobilePilotAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        actionQueue.trackForeground(event)
         screenCapture.onAccessibilityEvent(event)
         actionQueue.onAccessibilityEvent(event)
         settingsTest.onAccessibilityEvent(event)
@@ -44,6 +46,9 @@ class MobilePilotAccessibilityService : AccessibilityService() {
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
+        sessions.cancel()
+        uiWait.cancel()
+        targetApps.cancelWaiting()
         if (activeService === this) activeService = null
         floatingControls.remove()
         settingsTest.dispose()
@@ -82,7 +87,26 @@ class MobilePilotAccessibilityService : AccessibilityService() {
         }
     }
 
+    fun navigateGlobally(action: String): TapResult {
+        if (action != "home" && action != "recents") {
+            return TapResult(false, "INVALID_ARGUMENT", "ไม่รู้จักคำสั่งนำทาง")
+        }
+        cancelPendingCommands()
+        val response = GlobalNavigationController(this).navigate(action)
+        actionQueue.lastPointTapResult = response
+        floatingControls.setStatus(response.message)
+        return response
+    }
+
     private fun performFloatingAction(action: String) {
+        if (uiWait.isScrolling && action != "home" && action != "recents") {
+            floatingControls.setStatus("หยุดเลื่อนค้นหาก่อนใช้คำสั่งอื่น")
+            return
+        }
+        if (action == "home" || action == "recents") {
+            navigateGlobally(action)
+            return
+        }
         val root = rootInActiveWindow
         val foregroundPackage = try {
             root?.packageName?.toString()
@@ -157,13 +181,18 @@ class MobilePilotAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun cancelPendingCommands() {
-        val hadPendingCommands = actionQueue.hasPendingActions || settingsTest.isPending || screenCapture.isArmed
+    fun cancelPendingCommands() {
+        val hadSession = sessions.isRunning
+        sessions.cancel()
+        uiTree.invalidateSnapshot()
+        targetApps.cancelWaiting()
+        val hadPendingCommands = hadSession || uiWait.isWaiting || actionQueue.hasPendingActions || settingsTest.isPending || screenCapture.isArmed
+        uiWait.cancel()
         actionQueue.cancelPendingActions()
         settingsTest.cancelPending()
         screenCapture.cancelExternalScreenCapture()
         actionQueue.lastPointTapResult = if (hadPendingCommands) {
-            TapResult(false, "ACTION_CANCELLED", "ยกเลิกคำสั่งที่รออยู่ทั้งหมดแล้ว")
+            TapResult(false, "ACTION_CANCELLED", "ยกเลิกคิวแล้ว คำสั่งที่ส่งให้ Android ก่อนหน้านี้อาจยังทำงานอยู่")
         } else {
             TapResult(true, "NO_PENDING_ACTION", "ไม่มีคำสั่งที่รออยู่")
         }
@@ -175,7 +204,54 @@ class MobilePilotAccessibilityService : AccessibilityService() {
 
     fun cancelSettingsTapTest(message: String) = settingsTest.cancelSettingsTapTest(message)
 
+    fun beginCommandSession(id: String, target: String): Boolean {
+        if (target == packageName || actionQueue.hasPendingActions || uiWait.isWaiting || screenCapture.isArmed || settingsTest.isPending) return false
+        return sessions.begin(id, target)
+    }
+
+    fun allowsCommandSession(id: String, target: String?): Boolean = sessions.allows(id, target)
+    fun hasCommandSession(): Boolean = sessions.isRunning
+    fun finishCommandSession(id: String): Boolean = sessions.finish(id)
+    fun cancelCommandSession(id: String) {
+        if (sessions.allows(id, null)) cancelPendingCommands()
+    }
+
+    fun waitForUi(id: String, target: String, selector: String, value: String, timeoutMs: Long,
+                  condition: String, callback: (Map<String, Any?>) -> Unit) =
+        uiWait.startCondition(id, target, selector, value, timeoutMs, condition, callback)
+
+    val isScrollingForUi: Boolean get() = uiWait.isScrolling
+
+    fun scrollUntilUi(id: String, target: String, selector: String, value: String, timeoutMs: Long,
+                      direction: String, maxScrolls: Int, distance: String, callback: (Map<String, Any?>) -> Unit) {
+        if (actionQueue.hasPendingActions || settingsTest.isPending || screenCapture.isArmed) {
+            callback(mapOf("code" to "SEQUENCE_BUSY", "message" to "ยกเลิกคำสั่งอื่นที่รออยู่ก่อนเริ่มเลื่อนค้นหา"))
+            return
+        }
+        uiTree.invalidateSnapshot()
+        uiWait.startScrollWithDistance(id, target, selector, value, timeoutMs, direction, maxScrolls, distance, callback)
+    }
+
+    fun cancelUiWait(id: String) = uiWait.cancel(id)
+
+    fun awaitTargetReady(target: String, callback: (Boolean) -> Unit) =
+        targetApps.awaitReady(target, { activeService?.takeIf { it === this } }, callback)
+
+    fun editElementById(screenId: String,nodeId: String,targetPackage: String,action: String,text: String): TapResult =
+        uiTree.editElementById(screenId,nodeId,targetPackage,action,text)
+
+    fun tapElementById(screenId: String, nodeId: String, targetPackage: String): TapResult =
+        uiTree.tapElementById(screenId, nodeId, targetPackage)
+
     fun readUiTree(): List<Map<String, Any?>> = uiTree.readUiTree()
+
+    fun readUiTreeForPackage(targetPackage: String?): List<Map<String, Any?>> = uiTree.readUiTreeForPackage(targetPackage)
+
+    fun tapElementForPackage(target: String, targetPackage: String?): TapResult = uiTree.tapElementForPackage(target, targetPackage)
+
+    fun tapElementWithGestureForPackage(target: String, targetPackage: String?, callback: (TapResult) -> Unit) =
+        uiTree.tapElementWithGestureForPackage(target, targetPackage, callback)
+
 
     fun tapElementByText(target: String): TapResult = uiTree.tapElementByText(target)
 
@@ -184,7 +260,7 @@ class MobilePilotAccessibilityService : AccessibilityService() {
 
     fun captureScreen(callback: (ScreenCaptureResult) -> Unit) = screenCapture.captureScreen(callback)
 
-    fun armExternalScreenCapture(): TapResult = screenCapture.armExternalScreenCapture()
+    fun armExternalScreenCapture(targetPackage: String? = null): TapResult = screenCapture.armExternalScreenCapture(targetPackage)
 
     fun cancelExternalScreenCapture() = screenCapture.cancelExternalScreenCapture()
 
@@ -193,6 +269,26 @@ class MobilePilotAccessibilityService : AccessibilityService() {
     fun queuePointTap(x: Double, y: Double, width: Int, height: Int, rotation: Int, targetPackage: String): TapResult =
         actionQueue.queuePointTap(x, y, width, height, rotation, targetPackage)
 
+    fun cancelQueuedActions() = actionQueue.cancelPendingActions()
+
+    fun queueDoubleTap(x: Double, y: Double, width: Int, height: Int, rotation: Int, targetPackage: String): TapResult =
+        actionQueue.queueDoubleTap(x, y, width, height, rotation, targetPackage)
+
+    fun queueLongPress(x: Double, y: Double, width: Int, height: Int, rotation: Int, targetPackage: String, durationMs: Long): TapResult =
+        actionQueue.queueLongPress(x, y, width, height, rotation, targetPackage, durationMs)
+
+    fun queueDrag(x: Double,y: Double,endX: Double,endY: Double,width: Int,height: Int,rotation: Int,
+                  targetPackage: String,holdMs: Long,durationMs: Long): TapResult =
+        actionQueue.queueDrag(x,y,endX,endY,width,height,rotation,targetPackage,holdMs,durationMs)
+
+    fun queueSwipe(x: Double, y: Double, endX: Double, endY: Double, width: Int, height: Int,
+                   rotation: Int, targetPackage: String, durationMs: Long): TapResult =
+        actionQueue.queueSwipe(x, y, endX, endY, width, height, rotation, targetPackage, durationMs)
+
+    fun queuePinch(x: Double, y: Double, width: Int, height: Int, rotation: Int, targetPackage: String,
+                   durationMs: Long, startSpan: Double, scale: Double, axis: String): TapResult =
+        actionQueue.queuePinch(x, y, width, height, rotation, targetPackage, durationMs, startSpan, scale, axis)
+
     fun getPointTapResult(): TapResult? = actionQueue.getPointTapResult()
 
     fun queueUtilityAction(
@@ -200,8 +296,6 @@ class MobilePilotAccessibilityService : AccessibilityService() {
     ): TapResult = actionQueue.queueUtilityAction(action, targetPackage, width, height, rotation, text)
 
     fun getQueuedUtilityTargetPackage(): String? = actionQueue.getQueuedUtilityTargetPackage()
-
-    fun failQueuedUtilityActionToLaunch(): TapResult = actionQueue.failQueuedUtilityActionToLaunch()
 
     fun tapNormalizedPoint(
         x: Double, y: Double, screenshotWidth: Int, screenshotHeight: Int, screenshotRotation: Int,

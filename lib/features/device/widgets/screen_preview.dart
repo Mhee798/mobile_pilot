@@ -14,8 +14,12 @@ class ScreenPreview extends StatelessWidget {
     required this.isTapping,
     required this.onPointSelected,
     required this.onTapPoint,
+    this.endX,
+    this.endY,
   });
 
+  final double? endX;
+  final double? endY;
   final Uint8List image;
   final int sourceWidth;
   final int sourceHeight;
@@ -60,6 +64,26 @@ class ScreenPreview extends StatelessWidget {
                       fit: StackFit.expand,
                       children: [
                         Image.memory(image, fit: BoxFit.fill),
+                        if (selectedX != null &&
+                            selectedY != null &&
+                            endX != null &&
+                            endY != null)
+                          CustomPaint(
+                            painter: _SwipeLine(
+                              Offset(selectedX!, selectedY!),
+                              Offset(endX!, endY!),
+                            ),
+                          ),
+                        if (endX != null && endY != null)
+                          Positioned(
+                            left: endX! * imageWidth - 10,
+                            top: endY! * imageHeight - 20,
+                            child: const Icon(
+                              Icons.flag,
+                              color: Colors.blue,
+                              size: 20,
+                            ),
+                          ),
                         if (selectedX != null && selectedY != null)
                           Positioned(
                             left: selectedX! * imageWidth - 12,
@@ -90,4 +114,24 @@ class ScreenPreview extends StatelessWidget {
       },
     );
   }
+}
+
+class _SwipeLine extends CustomPainter {
+  const _SwipeLine(this.start, this.end);
+  final Offset start;
+  final Offset end;
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawLine(
+      Offset(start.dx * size.width, start.dy * size.height),
+      Offset(end.dx * size.width, end.dy * size.height),
+      Paint()
+        ..color = Colors.blue
+        ..strokeWidth = 2,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_SwipeLine oldDelegate) =>
+      start != oldDelegate.start || end != oldDelegate.end;
 }

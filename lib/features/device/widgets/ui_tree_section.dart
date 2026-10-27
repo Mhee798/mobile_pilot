@@ -12,6 +12,16 @@ class UiTreeSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        TextField(
+          controller: tree.inputTextController,
+          maxLength: 2000,
+          enabled: !tree.feedback.isTapping,
+          decoration: const InputDecoration(
+            labelText: 'ข้อความแทนที่ในช่องที่เลือกจากรายการ UI',
+            helperText: 'อ่าน UI tree แล้วเลือกเมนูช่องพิมพ์ด้านล่าง · ล้างข้อความได้โดยไม่ต้องกรอก',
+          ),
+        ),
+
         Text(
           'รายการจากหน้าจอปัจจุบัน (${tree.elements.length})',
           style: Theme.of(context).textTheme.titleMedium,
@@ -64,6 +74,36 @@ class UiTreeSection extends StatelessWidget {
                         ),
                       ),
                       subtitle: details.isEmpty ? null : Text(details),
+                      trailing: element['editable'] == true
+                          ? PopupMenuButton<String>(
+                              tooltip: 'จัดการช่องพิมพ์นี้',
+                              enabled: tree.canEditReference(element),
+                              onSelected: (action) =>
+                                  tree.editReference(element, action),
+                              itemBuilder: (_) => const [
+                                PopupMenuItem(
+                                  value: 'focus',
+                                  child: Text('โฟกัสช่องนี้'),
+                                ),
+                                PopupMenuItem(
+                                  value: 'replace',
+                                  child: Text('แทนที่ข้อความในช่องนี้'),
+                                ),
+                                PopupMenuItem(
+                                  value: 'clear',
+                                  child: Text('ล้างข้อความในช่องนี้'),
+                                ),
+                              ],
+                            )
+                          : element['nodeId'] is String
+                          ? IconButton(
+                              tooltip: 'แตะรายการนี้ในแอปเป้าหมาย',
+                              icon: const Icon(Icons.ads_click),
+                              onPressed: tree.canTapReference(element)
+                                  ? () => tree.tapReference(element)
+                                  : null,
+                            )
+                          : null,
                       onTap: () => tree.targetController.text = title,
                     );
                   },

@@ -27,6 +27,32 @@ public class ScreenCaptureControllerTest extends NativeControllerTest {
         }).when(service).takeScreenshot(anyInt(), any(), any());
     }
 
+    @Test
+    public void explicitTargetCanCaptureAnAlreadyForegroundAppWithoutANewEvent() {
+        capture.armExternalScreenCapture(TARGET);
+        advance(700);
+        assertEquals(1, callbacks.size());
+    }
+
+    @Test
+    public void explicitTargetIgnoresOtherExternalApps() {
+        foreground("other.app");
+        capture.armExternalScreenCapture(TARGET);
+        capture.onAccessibilityEvent(window("other.app"));
+        advance(1_000);
+        assertTrue(callbacks.isEmpty());
+        foreground(TARGET);
+        capture.onAccessibilityEvent(window(TARGET));
+        advance(700);
+        assertEquals(1, callbacks.size());
+    }
+
+    @Test
+    public void explicitTargetRejectsMobilePilot() {
+        assertFalse(capture.armExternalScreenCapture(PILOT).getSuccess());
+        assertFalse(capture.isArmed());
+    }
+
     @After
     public void clearCapture() {
         capture.cancelExternalScreenCapture();

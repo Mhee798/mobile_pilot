@@ -12,6 +12,7 @@ class ScreenCaptureController extends DeviceController {
   bool _deadlineReached = false;
   bool _isPolling = false;
   int _requestId = 0;
+  String? _requestedPackage;
   static const _captureTimeout = Duration(seconds: 30);
   static const _channelTimeout = Duration(seconds: 2);
   int pollAttempts = 0;
@@ -22,17 +23,46 @@ class ScreenCaptureController extends DeviceController {
   String? packageName;
   double? selectedX;
   double? selectedY;
+  double? swipeEndX;
+  double? swipeEndY;
+  bool selectingSwipeEnd = false;
+  void selectSwipeEnd(bool value) => update(() => selectingSwipeEnd = value);
   bool isCapturing = false;
   bool isWaiting = false;
 
+  void clearForTargetChange() {
+    _requestId++;
+    _stopWaiting();
+    _isPolling = false;
+    update(() {
+      isCapturing = false;
+      image = null;
+      width = null;
+      height = null;
+      rotation = null;
+      packageName = null;
+      selectedX = null;
+      selectedY = null;
+      swipeEndX = null;
+      swipeEndY = null;
+      selectingSwipeEnd = false;
+    });
+  }
+
   void selectPoint(double x, double y) => update(() {
-    selectedX = x;
-    selectedY = y;
+    if (selectingSwipeEnd) {
+      swipeEndX = x;
+      swipeEndY = y;
+    } else {
+      selectedX = x;
+      selectedY = y;
+    }
   });
 
   Future<void> capture() async {
     if (!mounted || isCapturing || isWaiting) return;
     final requestId = ++_requestId;
+    _requestedPackage = feedback.targetPackage;
     _isPolling = false;
     _deadlineTimer?.cancel();
     _deadlineReached = false;
@@ -41,7 +71,9 @@ class ScreenCaptureController extends DeviceController {
       feedback.message = null;
     });
     try {
-      final response = await platform.armScreenCapture();
+      final response = await platform.armScreenCapture(
+        targetPackage: _requestedPackage,
+      );
       if (!mounted || requestId != _requestId) return;
       if (response == null) {
         throw const FormatException('Capture could not be armed.');
@@ -60,18 +92,22 @@ class ScreenCaptureController extends DeviceController {
       });
       return;
     } on PlatformException catch (error) {
-      if (mounted) update(() => feedback.message = error.message ?? error.code);
+      if (mounted && requestId == _requestId) {
+        update(() => feedback.message = error.message ?? error.code);
+      }
     } on MissingPluginException {
-      if (mounted) {
+      if (mounted && requestId == _requestId) {
         update(
           () => feedback.message =
               'ไม่พบ screenshot channel; ต้อง build Android ใหม่',
         );
       }
     } on FormatException catch (error) {
-      if (mounted) update(() => feedback.message = error.message.toString());
+      if (mounted && requestId == _requestId) {
+        update(() => feedback.message = error.message.toString());
+      }
     } finally {
-      if (mounted) update(() => isCapturing = false);
+      if (mounted && requestId == _requestId) update(() => isCapturing = false);
     }
   }
 
@@ -94,6 +130,11 @@ class ScreenCaptureController extends DeviceController {
         pollTimer = Timer(const Duration(milliseconds: 700), poll);
         return;
       }
+      if ((_requestedPackage != null &&
+              response['packageName'] != _requestedPackage) ||
+          feedback.targetPackage != _requestedPackage) {
+        throw const FormatException('แอปเป้าหมายเปลี่ยนแล้ว กรุณาจับภาพใหม่');
+      }
       final jpeg = response['jpeg'];
       final capturedWidth = response['width'] as int?;
       final capturedHeight = response['height'] as int?;
@@ -115,6 +156,9 @@ class ScreenCaptureController extends DeviceController {
         packageName = capturedPackageName;
         selectedX = null;
         selectedY = null;
+        swipeEndX = null;
+        swipeEndY = null;
+        selectingSwipeEnd = false;
         feedback.message = 'จับภาพแอปแล้ว ($capturedWidth×$capturedHeight)';
       });
     } on TimeoutException {

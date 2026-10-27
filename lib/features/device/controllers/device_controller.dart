@@ -6,6 +6,7 @@ import '../../../core/platform/mobile_pilot_platform.dart';
 // Updates notify the command's controller; the page listens to all controllers.
 class CommandFeedback {
   String? message;
+  String? targetPackage;
   bool isTapping = false;
 }
 

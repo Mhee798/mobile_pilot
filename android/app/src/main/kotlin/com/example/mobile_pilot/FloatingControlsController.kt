@@ -68,6 +68,8 @@ class FloatingControlsController(
         panel.addView(createFloatingButton("เลื่อนลง") { onAction("scroll_down") }, floatingButtonLayout(dp(42), dp(5)))
         panel.addView(createFloatingButton("ปัดซ้าย") { onAction("swipe_left") }, floatingButtonLayout(dp(42), dp(5)))
         panel.addView(createFloatingButton("ปัดขวา") { onAction("swipe_right") }, floatingButtonLayout(dp(42), dp(5)))
+        panel.addView(createFloatingButton("หน้าหลัก Home") { onAction("home") }, floatingButtonLayout(dp(42), dp(5)))
+        panel.addView(createFloatingButton("แอปล่าสุด Recents") { onAction("recents") }, floatingButtonLayout(dp(42), dp(5)))
         panel.addView(createFloatingButton("ย้อนกลับ") { onAction("back") }, floatingButtonLayout(dp(42), dp(5)))
         panel.addView(createFloatingButton("ยกเลิกคำสั่งที่รอ") { onCancel() }, floatingButtonLayout(dp(42), dp(5)))
         panel.addView(createFloatingButton("ย่อแผง") { toggleFloatingPanel() }, floatingButtonLayout(dp(42), dp(5)))
