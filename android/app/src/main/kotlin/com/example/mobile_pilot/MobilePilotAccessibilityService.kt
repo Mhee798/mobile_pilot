@@ -17,7 +17,7 @@ import android.view.inputmethod.InputMethodManager
 class MobilePilotAccessibilityService : AccessibilityService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val floatingControls = FloatingControlsController(
-        this, mainHandler, ::performFloatingAction, ::cancelPendingCommands,
+        this, mainHandler, ::performFloatingAction, ::stopFromFloatingControls,
     )
 
     private val sessions = CommandSessionController(mainHandler, ::cancelPendingCommands)
@@ -35,6 +35,7 @@ class MobilePilotAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         activeService = this
         if (isFloatingControlsEnabled()) floatingControls.show()
+        AiTaskOverlayBridge.refresh()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -98,7 +99,13 @@ class MobilePilotAccessibilityService : AccessibilityService() {
         return response
     }
 
+    fun navigateBackForTarget(target: String): TapResult = GlobalNavigationController(this).back(target)
+
     private fun performFloatingAction(action: String) {
+        if (AiTaskOverlayBridge.running) {
+            floatingControls.setStatus("หยุดงาน AI ก่อนใช้คำสั่งบนแผงลอย")
+            return
+        }
         if (uiWait.isScrolling && action != "home" && action != "recents") {
             floatingControls.setStatus("หยุดเลื่อนค้นหาก่อนใช้คำสั่งอื่น")
             return
@@ -198,6 +205,14 @@ class MobilePilotAccessibilityService : AccessibilityService() {
         }
         floatingControls.setStatus(actionQueue.lastPointTapResult?.message ?: "ยกเลิกแล้ว")
     }
+
+    private fun stopFromFloatingControls() {
+        // Revoke native work immediately, then ask the model to stop generating.
+        AiTaskOverlayBridge.requestStop()
+        cancelPendingCommands()
+    }
+
+    fun setAiTaskStatus(message: String) = floatingControls.setAiStatus(message)
 
     fun beginSettingsTapTest(target: String, settingsPackage: String): TapResult =
         settingsTest.beginSettingsTapTest(target, settingsPackage)

@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mobile_pilot/features/device/controllers/device_controller.dart';
-import 'package:mobile_pilot/features/device/controllers/ui_tree_controller.dart';
+import 'package:mobile_pilot/features/device/presentation/controllers/device_controller.dart';
+import 'package:mobile_pilot/features/device/presentation/controllers/ui_tree_controller.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

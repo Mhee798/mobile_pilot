@@ -1,10 +1,10 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
-import 'package:mobile_pilot/features/device/widgets/pinch_controls_section.dart';
+import 'package:mobile_pilot/features/device/presentation/widgets/pinch_controls_section.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mobile_pilot/features/device/controllers/device_controller.dart';
-import 'package:mobile_pilot/features/device/controllers/screen_capture_controller.dart';
-import 'package:mobile_pilot/features/device/controllers/pinch_controller.dart';
+import 'package:mobile_pilot/features/device/presentation/controllers/device_controller.dart';
+import 'package:mobile_pilot/features/device/presentation/controllers/screen_capture_controller.dart';
+import 'package:mobile_pilot/features/device/presentation/controllers/pinch_controller.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

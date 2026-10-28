@@ -1,5 +1,20 @@
 # MobilePilot --- AI Mobile Use for Android
 
+> AI device-test update (2026-10-28): Thai and English requests can open Settings
+> and tap into Wi-Fi using exact, unique UI labels. End-to-end completion is
+> still inconsistent: goal-evidence selection can be missing/ambiguous, so the
+> controller stops instead of claiming success. One Thai run verified the
+> destination; later runs still failed verification. Latest Flutter suite:
+> 148 tests passed; analysis/debug build passed. See `Testing.md` for evidence.
+> Next priority: reliable goal-evidence selection and reporting, not more tools.
+
+> Run-history update (2026-10-28): Added private, expandable diagnostic history
+> with tool arguments/results, timing, model identity, stop reason and clearing.
+> Refactored task-state and result presentation; reviewed and tested (157 Flutter,
+> 168 Android app tests, analysis/build passed). Phone smoke test confirmed a
+> real app-search step was persisted and displayed. Goal verification remains
+> inconsistent and has not been disabled by this change.
+
 ## 1. Project Overview
 
 MobilePilot is an Android AI agent app that lets users give
@@ -21,12 +36,12 @@ Engine.
 > behavior, permissions, OS version, and app restrictions must be tested
 > on real devices.
 
-## Current Implementation Status — 2026-10-27
+## Current Implementation Status — 2026-10-28
 
-The project currently has a working **manual Android-control prototype**. It is
-not an AI agent yet: the user runs individual controls or a fixed sequence test from the
-MobilePilot screen; there is no natural-language planner, model connection, or
-tool-calling loop.
+The project has manual controls plus an **on-device AI chat prototype** using
+Gemma/LiteRT-LM. App search/open/read and resuming after an app choice have been
+confirmed by the user. The remaining device capabilities are now wired into
+typed AI tools; model-driven reliability across apps is still being tested.
 
 | Area | Status | Evidence / limit |
 | --- | --- | --- |
@@ -41,8 +56,8 @@ tool-calling loop.
 | Focused text entry | Verified on device | On 2026-10-26, `MP_SAFE_TEST_42` was inserted into Chrome's focused address field on a PTP N49. It was not submitted. Password fields are blocked. |
 | Floating controls | Implemented, basic | Accessibility service can show a draggable bubble and action panel, including cancel. Overlay behavior needs more device/app testing. |
 | Deterministic command sequence | Implemented, basic | Explicitly launches one selected app, waits, reads a fresh tree, clicks one unique node and waits for a new result. Stops on failure, cancellation or stale references; no AI or persistent recovery. |
-| AI planner, Vision fallback, chat, task history | Not started | No model/API integration, natural-language planning, or persistent task history yet. |
-| Verification and task lifecycle | Partial | Actions report dispatch status; the fixed sequence checks a newly present UI result. Persistent task state, general semantic verification and recovery are not implemented. |
+| AI chat, tools and Vision | Prototype connected | Local model selection/download, chat/images, app choice continuation, UI and action tools. Bounded 8-round/12-call loop; action reliability still needs model/device tests. No persistent task history or recovery. |
+| Verification and task lifecycle | Partial | App-owned AI controller survives chat navigation; floating panel shows AI status and Stop cancels model/native work. Native leases validate target and references. Goal verification still needs AI to reread the screen; no foreground service or process-death recovery. |
 
 The latest `flutter analyze`, Android debug build, and installation on the
 connected device succeeded. These checks confirm the current prototype builds;
@@ -75,8 +90,9 @@ suite now passes 158 tests and the Flutter suite passes 63; see
   than cancelling it; use **Cancel pending commands**, Stop, or wait for expiry.
 - With no selection, existing local-screen/manual test controls remain available.
   Selection is held for this command page only; it is not persistent task state.
-- `wait_for_ui` now supports visible-element presence. Additional wait conditions
-  and the AI loop are still pending.
+- `wait_for_ui` supports presence, enabled, disappearance and text changes.
+  AI tools now include UI actions, capture/gestures, scroll search and navigation;
+  see [AI tool guide](AI-Tool-Guide.md) for schemas and limits.
 
 ## 2. Product Experience
 
@@ -105,7 +121,7 @@ The user can inspect the latest screen view and follow each action.
 
 The current prototype has a manual in-app screenshot preview and a basic
 floating bubble/action panel. The preview is a single capture, not a live
-stream, and the floating panel is not yet connected to an AI task lifecycle.
+stream. The floating panel now displays AI status and has a task Stop button.
 Keep the in-app view as the primary observation surface while hardening the
 floating controls.
 
@@ -656,7 +672,8 @@ The MVP is successful when:
 2.  [x] Add screenshot capture through Android Accessibility and a manual
     in-app preview.
 3.  [ ] Implement Vision fallback and coordinate validation.
-4.  [ ] Build the agent loop and typed AI tools.
+4.  [x] Build a bounded prototype agent loop and typed AI tools; validate
+    model-driven workflows separately before calling them reliable.
 5.  [x] Connect the current device controls to Flutter using Platform
     Channels.
 6.  [ ] Add persistent task state, task-wide Stop, and recovery.

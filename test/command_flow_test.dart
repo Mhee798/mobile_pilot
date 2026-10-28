@@ -4,8 +4,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mobile_pilot/features/device/command_page.dart';
-import 'package:mobile_pilot/features/device/widgets/screen_preview.dart';
+import 'package:mobile_pilot/features/device/presentation/command_page.dart';
+import 'package:mobile_pilot/features/device/presentation/widgets/screen_preview.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

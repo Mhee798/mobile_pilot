@@ -394,3 +394,42 @@ After the tool simplification, the native suite passed 165 tests, Flutter passed
 - Real Android Settings: opened Settings, scrolled twice to “เกี่ยวกับโทรศัพท์”, clicked it and verified “ชื่ออุปกรณ์” appeared. The Settings test uses the device's Thai locale.
 - Real-device cancellation initially revealed that this device can invoke the first continuing-stroke callback before the requested hold has elapsed. The drag controller now waits for the elapsed hold time before checking cancellation/foreground and dispatching the continuation; a device regression test confirmed Stop releases the contact without moving it.
 - After the fix: 165 Android tests, 63 Flutter tests, analysis, and regular Android debug build passed. The regular app was installed, Accessibility remained bound, the temporary local server/ADB reverse were stopped, and the original USB stay-awake value (0) was restored.
+
+### AI node-tap smoke test — 2026-10-28
+
+- Installed the regular APK with `adb install -r`, preserving the saved model files. No device integration-test reinstall was used.
+- Added short model-visible snapshot aliases (`ui1`, etc.) while retaining the original native screen ID for fingerprint validation. Node results include the exact `snapshot_id`/`node_id` arguments. Failed references remain rejected; the app never substitutes the latest snapshot automatically.
+- On the connected HONOR, the first English open/read/tap request reached a native `SERVICE_UNAVAILABLE` result even though Android subsequently reported the accessibility service bound. The cause of that transient failure is not established.
+- In a new chat using the same loaded model, “Open Settings and tap Wi-Fi. Do not change any settings.” completed with `open_app -> read_current_ui -> ui_action -> read_current_ui`. The tap reported `ACTION_DISPATCHED`; the subsequent tree changed from 47 to 37 nodes, and an independent ADB UI dump showed the Wi-Fi page. No network switch was intentionally pressed or changed.
+- This establishes one successful model-driven tap, not universal reliability. The repeated-error guard and de-duplicated fallback summary are covered by unit tests. Screen timeout was temporarily increased and restored to its original 120000 ms.
+
+### Goal verification and Thai/English comparison — 2026-10-28
+
+- Added fresh-read verification of 1–5 explicit conditions, a local interrupted-task notice (no automatic replay), compact in-memory continuation context, service-readiness preflight, and conservative JPEG comparison before coordinate gestures. The primary Flutter suite passed 136 tests; additional pixel-change and debug-input tests passed separately. Analysis and debug build passed.
+- A debug-only Activity intent can fill the chat field for Unicode input; it never submits. The Android debuggable flag and Flutter debug mode gate the hook. This allowed the complete Thai prompt to be verified in the actual EditText rather than transliterated by ADB input.
+- On the same installed build and loaded model, each comparison used a new chat and the Settings main-page baseline. Thai: “เปิดแอปตั้งค่า เข้าไปหน้า Wi-Fi แล้วบอกว่ามีอะไรบ้าง ห้ามเปลี่ยนค่าการตั้งค่า”. English: “Open Settings, enter the Wi-Fi page, and tell me what is on that page. Do not change any settings.”
+- Thai run: `open_app -> read_current_ui -> ui_action -> read_current_ui -> read_ui_page -> read_ui_page`; ui_action supplied `ui` instead of `ui1`, so it was rejected. Later inference failed with `Prefill input length exceeds available state entries (remaining capacity: 1290)`. No successful tap was observed.
+- English run: `open_app -> read_current_ui -> ui_action -> read_current_ui -> verify_goal`; the tap dispatched and an independent UI dump confirmed the Wi-Fi page. Goal verification correctly returned not_matched: the model supplied an incomplete network label and another malformed selector value rather than the exact observed strings.
+- Neither run completed the entire verified task. This is one sample per language, not evidence of a general language-quality ranking. It identifies parameter fidelity and context budgeting as remaining issues. Network settings were not intentionally changed. Original screen timeout 120000 ms was restored.
+
+### Numeric-reference follow-up — 2026-10-28
+
+- Replaced model-facing action references with numeric refs and reduced verification to one `ref`. Fresh reads expire previous refs. Exact positive integer strings and integral numeric values are accepted; fractional, malformed and expired refs are rejected.
+- Compacted model-facing UI output, bounded JSON tool-result bytes, reset native tool-chat context between user turns with a factual summary, and blocked further mutations until verification has assessed the previous mutation. These are bounds on payload and execution, not a guarantee of model correctness.
+- Device runs before the latest integer-normalization change reached Wi-Fi, but still failed final verification because of invalid refs. The mutation guard prevented another tap in those runs. End-to-end completion remains unconfirmed.
+- Latest validation: full Flutter suite passed 144 tests; an additional saved-screen tool-availability regression was added and the 14 relevant UI/tool tests passed. Analysis and debug APK build passed. Installed with `adb install -r`, preserving model data. The phone was locked, so the latest Thai/English comparison is pending unlock. Screen timeout restored to 120000 ms.
+
+### Exact-label follow-up after unlock — 2026-10-28
+
+- Both languages reproduced invalid numeric references. Exact-label action/verification schemas were introduced; only one exact matching node is accepted. Numeric refs remain available internally. Tool instructions now retain `next` during compaction; the loop also adds its own verification guidance after reads/pages.
+- Both Thai and English requests opened Settings and tapped into Wi-Fi with exact-label actions. Independent UI dumps confirmed the destination. No network-setting action was requested or intentionally executed.
+- Verification remains inconsistent: one Thai run matched the unique evidence “เครือข่ายที่ใช้งานได้” on the eighth round; other Thai runs and English runs were stopped for missing/ambiguous evidence. This is not a reliable end-to-end pass and does not establish a general language ranking.
+- Added one bounded reminder for a premature final answer. Added a text-only reporting turn when verification matches on the final tool round; tool calls in that extra turn are never executed. The latter fix has unit coverage, but the final device run failed before reaching it, so its successful model-generated report is not yet demonstrated on-device.
+- Latest APK installed with `adb install -r`; model data preserved. Analysis/build passed; screen timeout returned to 120000 ms. Remaining work is reliable goal-evidence selection, rather than raising action budgets or guessing invalid references.
+
+### Persistent run history and refactor — 2026-10-28
+
+- Added local, expandable run history with model file identity, request, actual tool arguments/results, timing, final state/reason, and confirmed clearing. No screenshot/icon bytes are persisted. At most 30 runs/40 steps per run are retained; older runs may be evicted sooner to target 512 KiB total. History is not replayed or used as model memory.
+- Refactored state/message definitions out of the task controller, separated tool-result presentation handling, and consolidated result callbacks. Reviews covered reuse, quality, efficiency and Android integration. Fixed cancellation during history initialization, uncertain restored steps, untraced manual app choices, and exact-label truncation discovered by review.
+- Validation: 157 Flutter tests and 168 Android app unit tests passed; analysis and debug APK build passed. The broad Gradle task including third-party plugin tests hit a cross-drive plugin configuration failure; the intended `:app:testDebugUnitTest` suite passed.
+- Installed normally with `adb install -r`. On the connected phone, “ค้นหาแอปตั้งค่า ไม่ต้องเปิดแอป” created a persisted `find_apps` step with tools enabled and loaded model file identity. The history page displayed the run, elapsed times, and expandable tool details. This smoke test checks history capture, not general goal-verification reliability.

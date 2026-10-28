@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mobile_pilot/features/device/widgets/screen_preview.dart';
+import 'package:mobile_pilot/features/device/presentation/widgets/screen_preview.dart';
 
 void main() {
   testWidgets(

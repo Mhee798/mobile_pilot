@@ -5,6 +5,12 @@ import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context.MODE_PRIVATE
 import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import java.io.ByteArrayOutputStream
+import java.text.Normalizer
+import java.util.Locale
 import android.provider.Settings
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -23,7 +29,7 @@ class MobilePilotMethodCallHandler(private val activity: Activity) : MethodChann
             result.error("SEQUENCE_CANCELLED", "ชุดทดสอบหยุดหรือหมดอายุแล้ว", null)
             return false
         }
-        val tools = setOf("launchApp", "getUiTree", "waitForUi", "scrollUntilUi", "tapElementById", "editElementById", "tapElementByText",
+        val tools = setOf("aiBack", "launchApp", "getUiTree", "waitForUi", "scrollUntilUi", "tapElementById", "editElementById", "tapElementByText",
             "tapElementByTextWithGesture", "armScreenCapture", "queuePointTap", "queueDoubleTap", "queueLongPress", "queueSwipe", "queueDrag", "queuePinch", "queueScreenAction", "startSettingsTapTest")
         if (service?.isScrollingForUi == true && call.method in tools && call.method != "launchApp") {
             result.error("SCROLL_BUSY", "หยุดเลื่อนค้นหาก่อนใช้คำสั่งอื่น", null)
@@ -65,6 +71,22 @@ class MobilePilotMethodCallHandler(private val activity: Activity) : MethodChann
         if (!sessionAllows(call, result)) return
         val target = call.argument<String>("targetPackage")
         when (call.method) {
+            "getDeviceReadiness" -> {
+                val service = MobilePilotAccessibilityService.activeService
+                val root = service?.rootInActiveWindow
+                val hasWindow = root != null
+                root?.recycle()
+                result.success(mapOf("connected" to (service != null), "hasWindow" to hasWindow))
+            }
+            "aiBack" -> {
+                val service = MobilePilotAccessibilityService.activeService
+                if (service == null || target.isNullOrBlank()) result.error("SERVICE_UNAVAILABLE", "Select a target and enable Accessibility", null)
+                else {
+                    val response = service.navigateBackForTarget(target)
+                    if (response.success) result.success(mapOf("code" to response.code, "message" to response.message))
+                    else result.error(response.code, response.message, null)
+                }
+            }
             "navigateGlobally" -> {
                 val service = MobilePilotAccessibilityService.activeService
                 val action = call.argument<String>("action")
@@ -168,6 +190,27 @@ class MobilePilotMethodCallHandler(private val activity: Activity) : MethodChann
                 }
             }
 
+            "getAppIcon" -> {
+                val selectedPackage = call.argument<String>("packageName")
+                val app = getLaunchableApps().firstOrNull { it.packageName == selectedPackage }
+                if (app == null) {
+                    result.error("APP_NOT_LAUNCHABLE", "ไม่พบแอปที่เปิดได้", null)
+                } else {
+                    try {
+                        val icon = activity.packageManager.getApplicationIcon(app.packageName)
+                        val bitmap = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
+                        icon.setBounds(0, 0, 96, 96)
+                        icon.draw(Canvas(bitmap))
+                        val output = ByteArrayOutputStream()
+                        val success = bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                        bitmap.recycle()
+                        if (success) result.success(output.toByteArray())
+                        else result.error("ICON_FAILED", "ไม่สามารถอ่านไอคอนได้", null)
+                    } catch (error: Exception) {
+                        result.error("ICON_FAILED", error.message, null)
+                    }
+                }
+            }
             "findLaunchableApps" -> {
                 val query = call.argument<String>("query")?.trim()
                 if (query.isNullOrEmpty()) {
@@ -525,14 +568,37 @@ class MobilePilotMethodCallHandler(private val activity: Activity) : MethodChann
     }
 
     private fun findLaunchableApps(query: String): List<LaunchableApp> {
-        val normalizedQuery = query.trim()
+        val normalizedQuery = normalizeAppName(query)
         return getLaunchableApps()
-            .filter { it.label.contains(normalizedQuery, ignoreCase = true) }
+            .map { app -> app to localizedAppNames(app) }
+            .filter { (_, names) -> names.any { normalizeAppName(it).contains(normalizedQuery) } }
             .sortedWith(
-                compareByDescending<LaunchableApp> { it.label.equals(normalizedQuery, ignoreCase = true) }
-                    .thenBy { it.label.lowercase() },
+                compareByDescending<Pair<LaunchableApp, Set<String>>> { (_, names) ->
+                    names.any { normalizeAppName(it) == normalizedQuery }
+                }.thenBy { (app, _) -> normalizeAppName(app.label) },
             )
+            .map { it.first }
             .take(15)
+    }
+
+    private fun normalizeAppName(value: String): String =
+        Normalizer.normalize(value.trim(), Normalizer.Form.NFC).lowercase(Locale.ROOT)
+
+    private fun localizedAppNames(app: LaunchableApp): Set<String> {
+        val names = mutableSetOf(app.label)
+        val labelId = app.labelResource
+        if (labelId == 0) return names
+        for (locale in listOf(Locale.ENGLISH, Locale.forLanguageTag("th"))) {
+            try {
+                val config = Configuration(activity.resources.configuration)
+                config.setLocale(locale)
+                val context = activity.createPackageContext(app.packageName, 0).createConfigurationContext(config)
+                context.resources.getText(labelId)?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let(names::add)
+            } catch (_: Exception) {
+                // Some apps use non-resource labels or do not expose a translation.
+            }
+        }
+        return names
     }
 
     private fun getLaunchableApps(): List<LaunchableApp> {
@@ -546,12 +612,13 @@ class MobilePilotMethodCallHandler(private val activity: Activity) : MethodChann
             if (appPackage == activity.packageName || !activityInfo.enabled || !activityInfo.applicationInfo.enabled) continue
             val label = activityInfo.loadLabel(activity.packageManager)?.toString()?.trim().orEmpty()
             if (label.isEmpty()) continue
-            uniqueApps.putIfAbsent(appPackage, LaunchableApp(label, appPackage))
+            val labelResource = if (activityInfo.labelRes != 0) activityInfo.labelRes else activityInfo.applicationInfo.labelRes
+            uniqueApps.putIfAbsent(appPackage, LaunchableApp(label, appPackage, labelResource))
         }
 
         return uniqueApps.values
             .sortedBy { it.label.lowercase() }
     }
 
-    private data class LaunchableApp(val label: String, val packageName: String)
+    private data class LaunchableApp(val label: String, val packageName: String, val labelResource: Int)
 }

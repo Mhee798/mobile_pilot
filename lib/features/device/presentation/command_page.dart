@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../ai/presentation/screen/ai_test_page.dart';
+
 import 'controllers/app_launcher_controller.dart';
 import 'controllers/pinch_controller.dart';
 import 'widgets/pinch_controls_section.dart';
@@ -97,7 +99,24 @@ class _CommandPageState extends State<CommandPage> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('สั่งงาน')),
+      appBar: AppBar(
+        title: const Text('สั่งงาน'),
+        actions: [
+          IconButton(
+            tooltip: 'ทดสอบ AI',
+            icon: const Icon(Icons.smart_toy_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => AiTestPage(
+                  capturedImage: _capture.image,
+                  uiSnapshot: _tree.elements,
+                  targetPackage: _feedback.targetPackage,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(

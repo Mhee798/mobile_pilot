@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-import '../../../core/platform/mobile_pilot_platform.dart';
+import '../../../../core/platform/mobile_pilot_platform.dart';
 
 // These two values are shared by commands from different sections of the page.
 // Updates notify the command's controller; the page listens to all controllers.

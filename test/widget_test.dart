@@ -57,4 +57,33 @@ void main() {
       expect(find.text('ผลทดสอบ: ถูกแตะ 1 ครั้ง'), findsOneWidget);
     },
   );
+
+  testWidgets('AI test page can be opened and returns to commands', (
+    tester,
+  ) async {
+    accessibilityEnabled = true;
+    await tester.pumpWidget(const MobilePilotApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('ทดสอบ AI'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('จัดการโมเดล'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('เลือกและโหลดโมเดล'));
+    expect(find.text('เลือกและโหลดโมเดล'), findsOneWidget);
+    expect(find.text('ยังไม่ได้โหลดโมเดล'), findsOneWidget);
+    await tester.tap(find.text('Gemma 4 E2B · Vision (ประมาณ 2.6 GB)'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('ระบุลิงก์เอง').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('ดาวน์โหลดโมเดล'));
+    await tester.tap(find.text('ดาวน์โหลดโมเดล'));
+    await tester.pump();
+    expect(
+      find.text('กรุณาใส่ลิงก์ HTTPS ของไฟล์ .litertlm โดยตรง'),
+      findsOneWidget,
+    );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byType(CommandPage), findsOneWidget);
+  });
 }

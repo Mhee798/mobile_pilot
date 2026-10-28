@@ -28,6 +28,8 @@ class FloatingControlsController(
     private var floatingOverlayParams: WindowManager.LayoutParams? = null
     private var floatingControlsPanel: LinearLayout? = null
     private var floatingPanelStatus: TextView? = null
+    private var aiPanelStatus: TextView? = null
+    private var aiStatus = "AI: ยังไม่ได้เริ่มงาน"
 
     fun show(): Boolean {
         if (floatingOverlayRoot != null) return true
@@ -64,6 +66,13 @@ class FloatingControlsController(
         }
         panel.addView(title)
         panel.addView(status)
+        val aiStatusView = TextView(service).apply {
+            text = aiStatus
+            textSize = 12f
+            setTextColor(Color.rgb(49, 87, 213))
+            setPadding(dp(4), 0, dp(4), dp(6))
+        }
+        panel.addView(aiStatusView)
         panel.addView(createFloatingButton("เลื่อนขึ้น") { onAction("scroll_up") }, floatingButtonLayout(dp(42), dp(5)))
         panel.addView(createFloatingButton("เลื่อนลง") { onAction("scroll_down") }, floatingButtonLayout(dp(42), dp(5)))
         panel.addView(createFloatingButton("ปัดซ้าย") { onAction("swipe_left") }, floatingButtonLayout(dp(42), dp(5)))
@@ -71,7 +80,7 @@ class FloatingControlsController(
         panel.addView(createFloatingButton("หน้าหลัก Home") { onAction("home") }, floatingButtonLayout(dp(42), dp(5)))
         panel.addView(createFloatingButton("แอปล่าสุด Recents") { onAction("recents") }, floatingButtonLayout(dp(42), dp(5)))
         panel.addView(createFloatingButton("ย้อนกลับ") { onAction("back") }, floatingButtonLayout(dp(42), dp(5)))
-        panel.addView(createFloatingButton("ยกเลิกคำสั่งที่รอ") { onCancel() }, floatingButtonLayout(dp(42), dp(5)))
+        panel.addView(createFloatingButton("หยุด AI / ยกเลิกคำสั่ง") { onCancel() }, floatingButtonLayout(dp(42), dp(5)))
         panel.addView(createFloatingButton("ย่อแผง") { toggleFloatingPanel() }, floatingButtonLayout(dp(42), dp(5)))
 
         val bubble = TextView(service).apply {
@@ -113,6 +122,7 @@ class FloatingControlsController(
             floatingOverlayParams = params
             floatingControlsPanel = panel
             floatingPanelStatus = status
+            aiPanelStatus = aiStatusView
             true
         } catch (_: Exception) {
             false
@@ -211,11 +221,17 @@ class FloatingControlsController(
         floatingOverlayParams = null
         floatingControlsPanel = null
         floatingPanelStatus = null
+        aiPanelStatus = null
         floatingWindowManager = null
     }
 
     fun setStatus(message: String) {
         floatingPanelStatus?.text = message
+    }
+
+    fun setAiStatus(message: String) {
+        aiStatus = message
+        aiPanelStatus?.text = message
     }
 
     fun scrollGestureX(screenWidth: Int): Float {

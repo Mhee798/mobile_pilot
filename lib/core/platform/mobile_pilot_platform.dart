@@ -4,6 +4,19 @@ class MobilePilotPlatform {
   const MobilePilotPlatform();
 
   static const _channel = MethodChannel('com.mobilepilot/settings');
+  Future<Map<String, dynamic>?> getDeviceReadiness() =>
+      _channel.invokeMapMethod<String, dynamic>('getDeviceReadiness');
+
+  /// Native action used under an AI execution lease. Arguments retain their
+  /// native names so the same validation also applies to manual tools.
+  Future<Map<String, dynamic>?> dispatchSessionAction(
+    String method,
+    Map<String, dynamic> arguments, {
+    required String runId,
+  }) => _channel.invokeMapMethod<String, dynamic>(method, {
+    ...arguments,
+    'runId': runId,
+  });
 
   Future<Map<String, dynamic>?> navigateGlobally(String action) => _channel
       .invokeMapMethod<String, dynamic>('navigateGlobally', {'action': action});
@@ -47,6 +60,9 @@ class MobilePilotPlatform {
         )
         .toList();
   }
+
+  Future<Uint8List?> getAppIcon(String packageName) => _channel
+      .invokeMethod<Uint8List>('getAppIcon', {'packageName': packageName});
 
   Future<void> beginCommandSession(String id, String target) =>
       _channel.invokeMethod<void>('beginCommandSession', {
