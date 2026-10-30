@@ -3,12 +3,29 @@ import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 // Group related actions to keep the model's tool catalog small.
 const aiActionDefinitions = [
   Tool(
-    name: 'ui_action',
-    description: 'Act on one unique label copied exactly from the latest UI result. Ambiguous or missing labels are rejected. Read again to verify.',
+    name: 'keyboard_action',
+    description: 'Send the focused editable field\'s keyboard action in the selected foreground app. After entering a search query and reading the UI, use key=search to submit. default presses the field\'s advertised action. No screenshot/capture_id is needed. Rejects unfocused/password/wrong-app fields.',
     parameters: {
       'type': 'object',
       'properties': {
-        'label': {'type': 'string'},
+        'key': {
+          'type': 'string',
+          'enum': ['default', 'search', 'next', 'enter'],
+        },
+      },
+      'required': ['key'],
+    },
+  ),
+  Tool(
+    name: 'ui_action',
+    description: 'Act on the REQUIRED ref copied from the latest UI element, not its list position. text is replacement content only, never a tap target. Old refs expire after a read/action; inspect the latest UI first.',
+    parameters: {
+      'type': 'object',
+      'properties': {
+        'ref': {
+          'type': 'string',
+          'description': 'REQUIRED target: copy the actual ref alias from the latest UI result.',
+        },
         'action': {
           'type': 'string',
           'enum': ['tap', 'focus', 'replace', 'clear'],
@@ -19,7 +36,7 @@ const aiActionDefinitions = [
               'Replacement text, max 2000 chars. Only used for replace.',
         },
       },
-      'required': ['label', 'action'],
+      'required': ['ref', 'action'],
     },
   ),
   Tool(

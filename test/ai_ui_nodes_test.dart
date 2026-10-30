@@ -4,6 +4,17 @@ import 'package:mobile_pilot/features/ai/data/ai_device_tools.dart';
 import 'package:flutter/services.dart';
 
 void main() {
+  test('short aliases round trip without reusing an earlier reference', () {
+    final aliases = <String>{};
+    for (var ref = 1; ref <= 10000; ref++) {
+      final alias = uiRefAlias(ref);
+      expect(parseUiRef(alias), ref);
+      expect(aliases.add(alias), isTrue);
+    }
+    expect(uiRefAlias(1), 'A');
+    expect(uiRefAlias(26), 'Z');
+    expect(uiRefAlias(27), 'AA');
+  });
   TestWidgetsFlutterBinding.ensureInitialized();
   test('UI refs accept exact positive integers only', () {
     for (final value in <Object>[12, 12.0, '12']) {

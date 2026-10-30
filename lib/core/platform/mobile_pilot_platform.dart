@@ -7,6 +7,24 @@ class MobilePilotPlatform {
   Future<Map<String, dynamic>?> getDeviceReadiness() =>
       _channel.invokeMapMethod<String, dynamic>('getDeviceReadiness');
 
+  Future<Map<String, dynamic>?> getDeviceInfo() =>
+      _channel.invokeMapMethod<String, dynamic>('getDeviceInfo');
+  Future<Map<String, dynamic>?> openLink(String url) =>
+      _channel.invokeMapMethod<String, dynamic>('openLink', {'url': url});
+  Future<Map<String, dynamic>?> openMap(String query) =>
+      _channel.invokeMapMethod<String, dynamic>('openMap', {'query': query});
+  Future<Map<String, dynamic>?> prepareAlarm(int hour, int minute) =>
+      _channel.invokeMapMethod<String, dynamic>('prepareAlarm', {
+        'hour': hour,
+        'minute': minute,
+      });
+  Future<Map<String, dynamic>?> getMediaVolume() =>
+      _channel.invokeMapMethod<String, dynamic>('getMediaVolume');
+  Future<Map<String, dynamic>?> mediaControl(String action) => _channel
+      .invokeMapMethod<String, dynamic>('mediaControl', {'action': action});
+  Future<Map<String, dynamic>?> setMediaVolume(int value) => _channel
+      .invokeMapMethod<String, dynamic>('setMediaVolume', {'value': value});
+
   /// Native action used under an AI execution lease. Arguments retain their
   /// native names so the same validation also applies to manual tools.
   Future<Map<String, dynamic>?> dispatchSessionAction(
@@ -26,6 +44,14 @@ class MobilePilotPlatform {
 
   Future<void> openAccessibilitySettings() =>
       _channel.invokeMethod<void>('openAccessibilitySettings');
+
+  Future<Map<String, dynamic>?> openSystemSettings(
+    String destination, {
+    String? packageName,
+  }) => _channel.invokeMapMethod<String, dynamic>('openSystemSettings', {
+    'destination': destination,
+    'packageName': ?packageName,
+  });
 
   Future<bool?> getFloatingControlsEnabled() =>
       _channel.invokeMethod<bool>('getFloatingControlsEnabled');

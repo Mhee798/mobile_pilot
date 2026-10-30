@@ -37,7 +37,7 @@ void main() {
       };
       final compact = modelPayload('read_current_ui', raw);
       final element = (compact['elements'] as List).single;
-      expect(element['ref'], 9);
+      expect(element['ref'], 'I');
       expect(element['can_tap'], isTrue);
       expect(element['label'], 'ข้อความไทย' * 40);
       expect(jsonEncode(compact), isNot(contains('node-0')));

@@ -55,6 +55,7 @@ class FakeAiService extends AiModelService {
   bool returnApps = false;
   bool returnChoices = false;
   bool failGeneration = false;
+  bool nanoClosesModel = false;
   final prompts = <String>[];
   Map<String, dynamic>? reportedToolResult;
   Completer<void>? readGate;
@@ -68,6 +69,12 @@ class FakeAiService extends AiModelService {
   Future<bool> hasSavedModel() async => true;
   @override
   Future<void> loadSaved() async => ready = true;
+  @override
+  Future<void> loadGeminiNano(void Function(int) progress) async {
+    if (nanoClosesModel) ready = false;
+    throw StateError('Nano unavailable');
+  }
+
   @override
   Future<void> generate(
     String text,
@@ -128,6 +135,85 @@ class FakeAiService extends AiModelService {
 }
 
 void main() {
+  test(
+    'failed Nano switch keeps chat only when the old model remains ready',
+    () async {
+      for (final closesModel in [false, true]) {
+        final service = FakeAiService()..nanoClosesModel = closesModel;
+        final controller = AiTestCubit(service);
+        await controller.loadSaved();
+        await controller.send('สวัสดี');
+        expect(controller.state.messages, isNotEmpty);
+        await controller.loadGeminiNano();
+        expect(controller.state.ready, !closesModel);
+        expect(controller.state.messages.isEmpty, closesModel);
+        expect(controller.state.status, contains('Nano unavailable'));
+        await controller.close();
+      }
+    },
+  );
+  test(
+    'external task owns overlay status and stop until it finishes',
+    () async {
+      final overlay = FakeTaskOverlay();
+      final controller = AiTestCubit(FakeAiService(), overlay: overlay);
+      var stopped = false;
+      expect(
+        controller.beginExternalTask(() async {
+          stopped = true;
+        }),
+        isTrue,
+      );
+      controller.updateExternalTask('Gemini กำลังคิด');
+      expect(overlay.updates.last, (status: 'Gemini กำลังคิด', running: true));
+      await overlay.stop!();
+      expect(stopped, isTrue);
+      expect(controller.beginExternalTask(() async {}), isFalse);
+      controller.endExternalTask('Gemini ตอบแล้ว');
+      expect(overlay.updates.last, (status: 'Gemini ตอบแล้ว', running: false));
+      await controller.close();
+    },
+  );
+  testWidgets('thinking switch changes the setting before starting a chat', (
+    tester,
+  ) async {
+    final service = FakeAiService();
+    await tester.pumpWidget(MaterialApp(home: AiTestPage(service: service)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('จัดการโมเดล'));
+    await tester.pumpAndSettle();
+    final tile = find.widgetWithText(SwitchListTile, 'Thinking Mode');
+    expect(tester.widget<SwitchListTile>(tile).value, isTrue);
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    expect(service.thinkingEnabled, isFalse);
+  });
+  testWidgets('context experiment settings can be selected before loading', (
+    tester,
+  ) async {
+    final service = FakeAiService();
+    await tester.pumpWidget(MaterialApp(home: AiTestPage(service: service)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('จัดการโมเดล'));
+    await tester.pumpAndSettle();
+    final selector = find.byType(DropdownButtonFormField<int>);
+    await tester.ensureVisible(selector);
+    await tester.pumpAndSettle();
+    await tester.tap(selector);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('12K (12,288 tokens)').last);
+    await tester.pumpAndSettle();
+    expect(service.contextTokens, 12288);
+    final tile = find.widgetWithText(
+      SwitchListTile,
+      'ทดลองคง context ให้นานขึ้น',
+    );
+    await tester.ensureVisible(tile);
+    await tester.pumpAndSettle();
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    expect(service.proactiveContextRotation, isFalse);
+  });
   testWidgets('debug Thai input fills the field but never sends a request', (
     tester,
   ) async {
@@ -500,6 +586,48 @@ void main() {
     expect(cubit.state.waitingForUi, isFalse);
     expect(cubit.state.toolResults.single, contains('3 รายการ'));
   });
+
+  testWidgets(
+    'long tool traces keep chat and input visible with keyboard open',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(400, 800);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetViewInsets);
+      final cubit = AiTestCubit(FakeAiService());
+      addTearDown(cubit.close);
+      // Seed a long-running task without loading a native model.
+      cubit.emit(
+        AiTestState(
+          ready: true,
+          status: 'ข้อผิดพลาดที่มีรายละเอียดมาก ' * 30,
+          toolsUsed: List.filled(100, 'read_current_ui'),
+          toolResults: List.generate(
+            100,
+            (i) => 'ผลขั้น $i ${'รายละเอียด ' * 20}',
+          ),
+          messages: const [AiChatMessage(isUser: false, text: 'คำตอบในแชท')],
+        ),
+      );
+      await tester.pumpWidget(
+        BlocProvider<AiTestCubit>.value(
+          value: cubit,
+          child: const MaterialApp(home: AiTestPage()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('คำตอบในแชท').hitTestable(), findsOneWidget);
+      expect(find.byTooltip('ส่งข้อความ').hitTestable(), findsOneWidget);
+      await tester.tap(find.text('รายละเอียดเครื่องมือ'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(find.text('คำตอบในแชท').hitTestable(), findsOneWidget);
+      expect(find.byTooltip('ส่งข้อความ').hitTestable(), findsOneWidget);
+    },
+  );
 
   testWidgets('shows tappable app choices from a search result', (
     tester,

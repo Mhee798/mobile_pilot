@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../data/ai_run_history.dart';
 
@@ -13,6 +15,43 @@ class AiHistoryPage extends StatefulWidget {
 }
 
 class _AiHistoryPageState extends State<AiHistoryPage> {
+  bool _exporting = false;
+
+  Future<void> _export({String? runId}) async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      final json = await widget.history.exportJson(runId: runId);
+      if (!mounted) return;
+      final stamp = DateTime.now().toUtc().toIso8601String().replaceAll(
+        RegExp(r'[:.]'),
+        '-',
+      );
+      final saved = await FilePicker.saveFile(
+        fileName:
+            'mobilepilot-${runId == null ? 'history' : 'run'}-$stamp.json',
+        mimeType: 'application/json',
+        bytes: Uint8List.fromList(utf8.encode(json)),
+        dialogTitle: 'บันทึกประวัติการทำงาน AI',
+      );
+      if (mounted && saved != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('ส่งออกประวัติแล้ว แนบไฟล์ JSON เพื่อตรวจสอบได้'),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ส่งออกประวัติไม่สำเร็จ: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -52,9 +91,16 @@ class _AiHistoryPageState extends State<AiHistoryPage> {
           title: const Text('ประวัติการทำงาน AI'),
           actions: [
             IconButton(
+              tooltip: 'ส่งออกประวัติทั้งหมด',
+              onPressed: runs.isEmpty || _exporting ? null : () => _export(),
+              icon: const Icon(Icons.file_download_outlined),
+            ),
+            IconButton(
               tooltip: 'ล้างประวัติ',
               onPressed:
-                  runs.isEmpty || runs.any((r) => r['state'] == 'running')
+                  _exporting ||
+                      runs.isEmpty ||
+                      runs.any((r) => r['state'] == 'running')
                   ? null
                   : _clear,
               icon: const Icon(Icons.delete_outline),
@@ -79,7 +125,12 @@ class _AiHistoryPageState extends State<AiHistoryPage> {
               Expanded(
                 child: ListView.builder(
                   itemCount: runs.length,
-                  itemBuilder: (context, index) => _RunTile(run: runs[index]),
+                  itemBuilder: (context, index) => _RunTile(
+                    run: runs[index],
+                    onExport: _exporting
+                        ? null
+                        : () => _export(runId: runs[index]['id'] as String),
+                  ),
                 ),
               ),
           ],
@@ -90,8 +141,9 @@ class _AiHistoryPageState extends State<AiHistoryPage> {
 }
 
 class _RunTile extends StatelessWidget {
-  const _RunTile({required this.run});
+  const _RunTile({required this.run, this.onExport});
   final Map<String, dynamic> run;
+  final VoidCallback? onExport;
   @override
   Widget build(BuildContext context) {
     final steps = (run['steps'] as List).whereType<Map>().toList();
@@ -104,14 +156,27 @@ class _RunTile extends StatelessWidget {
       childrenPadding: const EdgeInsets.symmetric(horizontal: 16),
       expandedCrossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if ((run['older_steps_omitted'] as int? ?? 0) > 0)
+          Text(
+            'แสดงขั้นล่าสุด ตัดรายละเอียดก่อนหน้า ${run['older_steps_omitted']} ขั้น',
+          ),
+        TextButton.icon(
+          onPressed: onExport,
+          icon: const Icon(Icons.file_download_outlined),
+          label: const Text('ส่งออกงานนี้'),
+        ),
         Text(
           'เวลา: ${_duration(run['elapsed_ms'])} · เครื่องมือ ${run['tools'] == true ? 'เปิด' : 'ปิด'} · แนบภาพ ${run['image_attached'] == true ? 'ใช่' : 'ไม่'}',
         ),
+        if (run['vision_enabled'] is bool)
+          Text('Vision: ${run['vision_enabled'] == true ? 'เปิด' : 'ปิด'}'),
         if (run['reason'] != null && run['reason'] != '')
           SelectableText('เหตุผลที่จบ: ${run['reason']}'),
         for (var i = 0; i < steps.length; i++)
           ExpansionTile(
-            title: Text('${i + 1}. ${steps[i]['tool']}'),
+            title: Text(
+              '${(run['older_steps_omitted'] as int? ?? 0) + i + 1}. ${steps[i]['tool']}',
+            ),
             subtitle: Text(
               '${_state('${steps[i]['state']}')} · ${_duration(steps[i]['elapsed_ms'])}',
             ),
@@ -142,6 +207,7 @@ class _RunTile extends StatelessWidget {
   String _state(String state) => switch (state) {
     'running' => 'กำลังทำงาน',
     'responded' => 'ตอบแล้ว (ไม่ได้ยืนยันผล)',
+    'unverified' => 'ส่งคำสั่งแล้ว (ยังไม่ยืนยันผล)',
     'verified' => 'ตรงเงื่อนไขตรวจผล',
     'stopped' => 'หยุดก่อนจบ',
     'failed' => 'เกิดข้อผิดพลาด',

@@ -1,6 +1,13 @@
 /// Native IDs encode ancestry as node-0.1.2. Labels may belong to a clickable
 /// row above them. Resolve only against the same saved snapshot.
 int? parseUiRef(Object? raw) {
+  if (raw is String && RegExp(r'^[A-Z]{1,8}$').hasMatch(raw)) {
+    var value = 0;
+    for (final unit in raw.codeUnits) {
+      value = value * 26 + unit - 64;
+    }
+    return value;
+  }
   if (raw is int && raw > 0) return raw;
   if (raw is num && raw.isFinite && raw > 0 && raw == raw.toInt()) {
     return raw.toInt();
@@ -9,6 +16,18 @@ int? parseUiRef(Object? raw) {
     return int.tryParse(raw);
   }
   return null;
+}
+
+/// Compact, lossless aliases. Never reuse an alias after a fresh observation.
+String uiRefAlias(int value) {
+  if (value <= 0) throw ArgumentError.value(value);
+  var result = '';
+  while (value > 0) {
+    value--;
+    result = String.fromCharCode(65 + value % 26) + result;
+    value ~/= 26;
+  }
+  return result;
 }
 
 String uiNodeLabel(Map node) {

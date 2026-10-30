@@ -62,6 +62,7 @@ class AiRunHistory extends ChangeNotifier {
     String model, {
     required bool tools,
     required bool image,
+    bool? vision,
   }) async {
     await load();
     final id = '${DateTime.now().microsecondsSinceEpoch}-${++_sequence}';
@@ -71,6 +72,7 @@ class AiRunHistory extends ChangeNotifier {
       'model': _clip(model),
       'tools': tools,
       'image_attached': image,
+      'vision_enabled': ?vision,
       'started_at': DateTime.now().toUtc().toIso8601String(),
       'state': 'running',
       'steps': <Map<String, dynamic>>[],
@@ -84,15 +86,22 @@ class AiRunHistory extends ChangeNotifier {
     final run = _find(runId);
     if (run == null) return null;
     final steps = run['steps'] as List;
-    if (steps.length >= maxSteps) return null;
+    final stepId = run['next_step_id'] as int? ?? steps.length;
+    run['next_step_id'] = stepId + 1;
     steps.add({
+      'step_id': stepId,
       'tool': tool,
       'arguments': _details(args),
       'state': 'running',
       'started_at': DateTime.now().toUtc().toIso8601String(),
     });
+    if (steps.length > maxSteps) {
+      steps.removeAt(0);
+      run['older_steps_omitted'] =
+          (run['older_steps_omitted'] as int? ?? 0) + 1;
+    }
     _save();
-    return steps.length - 1;
+    return stepId;
   }
 
   Future<void> endStep(
@@ -103,7 +112,11 @@ class AiRunHistory extends ChangeNotifier {
   ) async {
     final run = _find(runId);
     if (run == null || index == null) return;
-    final step = (run['steps'] as List)[index] as Map<String, dynamic>;
+    final matches = (run['steps'] as List)
+        .whereType<Map<String, dynamic>>()
+        .where((step) => step['step_id'] == index);
+    if (matches.isEmpty) return;
+    final step = matches.single;
     step.addAll({
       'state': 'returned',
       'result': _details(result),
@@ -117,8 +130,9 @@ class AiRunHistory extends ChangeNotifier {
     String state,
     String reason,
     String answer,
-    int elapsedMs,
-  ) async {
+    int elapsedMs, {
+    String? taskState,
+  }) async {
     final run = _find(id);
     if (run == null) return;
     run.addAll({
@@ -127,6 +141,7 @@ class AiRunHistory extends ChangeNotifier {
       'answer': _clip(answer),
       'elapsed_ms': elapsedMs,
       'ended_at': DateTime.now().toUtc().toIso8601String(),
+      if (taskState != null) 'task_state': _details(taskState),
     });
     for (final step in (run['steps'] as List).whereType<Map>()) {
       if (step['state'] == 'running') step['state'] = 'unknown';
@@ -139,6 +154,22 @@ class AiRunHistory extends ChangeNotifier {
     if (_runs.any((run) => run['state'] == 'running')) return;
     _runs.clear();
     await _save();
+  }
+
+  /// An immutable snapshot of retained diagnostics, including unfinished runs.
+  Future<String> exportJson({String? runId}) async {
+    await load();
+    final selected = runId == null ? _runs : [_find(runId)];
+    if (selected.any((run) => run == null)) {
+      throw StateError('ไม่พบงานนี้ในประวัติแล้ว');
+    }
+    return const JsonEncoder.withIndent('  ').convert({
+      'format': 'mobilepilot.ai_run_history',
+      'schema_version': 1,
+      'exported_at': DateTime.now().toUtc().toIso8601String(),
+      'note': 'Retained diagnostic snapshot; details may be truncated. No screenshots. Not a replay queue.',
+      'runs': selected,
+    });
   }
 
   Map<String, dynamic>? _find(String id) {
@@ -199,6 +230,7 @@ class AiRunHistory extends ChangeNotifier {
             'imageBytes',
             'icon',
             'iconBase64',
+            'file_text',
           }.contains(entry.key))
             entry.key.toString(): _bounded(entry.value, depth + 1),
       };

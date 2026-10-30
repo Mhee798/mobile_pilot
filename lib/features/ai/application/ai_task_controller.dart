@@ -28,9 +28,11 @@ class AiTaskController extends Cubit<AiTaskState> {
         .map((state) => (status: state.status, running: state.generating))
         .distinct()
         .listen((value) {
-          unawaited(
-            _overlay?.publish(status: value.status, running: value.running),
-          );
+          if (!_externalOverlay) {
+            unawaited(
+              _overlay?.publish(status: value.status, running: value.running),
+            );
+          }
         });
     _checkSaved();
     _restoreInterrupted();
@@ -58,17 +60,58 @@ class AiTaskController extends Cubit<AiTaskState> {
   }
 
   final AiTaskOverlay? _overlay;
+  bool _externalOverlay = false;
+
+  /// Temporarily routes the shared Android status and stop button to cloud AI.
+  bool beginExternalTask(Future<void> Function() stop) {
+    if (_externalOverlay || state.busy || isClosed) return false;
+    _externalOverlay = true;
+    _overlay?.listen(stop);
+    return true;
+  }
+
+  void updateExternalTask(String status) {
+    if (_externalOverlay) {
+      unawaited(_overlay?.publish(status: status, running: true));
+    }
+  }
+
+  void endExternalTask(String status) {
+    if (!_externalOverlay) return;
+    _externalOverlay = false;
+    _overlay?.listen(stopGeneration);
+    unawaited(_overlay?.publish(status: status, running: false));
+  }
+
   StreamSubscription<({String status, bool running})>? _overlaySubscription;
   Future<void>? _operation;
   String? _pendingAppRequest;
 
   void _publishOverlay(AiTaskState state) {
+    if (_externalOverlay) return;
     unawaited(
       _overlay?.publish(status: state.status, running: state.generating),
     );
   }
 
   void _update(AiTaskState value) {
+    if (value.toolsUsed.length > 30 || value.toolResults.length > 30) {
+      value = value.copyWith(
+        toolsUsed: value.toolsUsed
+            .skip(
+              (value.toolsUsed.length - 30).clamp(0, value.toolsUsed.length),
+            )
+            .toList(),
+        toolResults: value.toolResults
+            .skip(
+              (value.toolResults.length - 30).clamp(
+                0,
+                value.toolResults.length,
+              ),
+            )
+            .toList(),
+      );
+    }
     if (!isClosed) emit(value);
   }
 
@@ -174,6 +217,43 @@ class AiTaskController extends Cubit<AiTaskState> {
       );
     } catch (error) {
       _update(state.copyWith(status: 'โหลดโมเดลไม่สำเร็จ: $error'));
+    } finally {
+      _update(
+        state.copyWith(
+          busy: false,
+          ready: service.isReady,
+          visionReady: service.supportsImages,
+        ),
+      );
+    }
+  });
+
+  Future<void> loadGeminiNano() => _run(() async {
+    _update(
+      state.copyWith(busy: true, status: 'กำลังตรวจสอบ Gemini Nano บนอุปกรณ์'),
+    );
+    try {
+      await service.loadGeminiNano((percent) {
+        _update(state.copyWith(status: 'กำลังเตรียม Gemini Nano: $percent%'));
+      });
+      _update(
+        state.copyWith(
+          status: 'Gemini Nano พร้อมใช้งาน',
+          answer: '',
+          messages: const [],
+          clearChoice: true,
+        ),
+      );
+    } catch (error) {
+      _update(
+        state.copyWith(
+          status:
+              'Gemini Nano ไม่พร้อมใช้งาน: $error${service.isReady ? '' : ' · กรุณาโหลดโมเดลอีกครั้ง'}',
+          answer: service.isReady ? state.answer : '',
+          messages: service.isReady ? state.messages : const [],
+          clearChoice: !service.isReady,
+        ),
+      );
     } finally {
       _update(
         state.copyWith(
@@ -291,6 +371,7 @@ class AiTaskController extends Cubit<AiTaskState> {
                   'read_current_ui',
                   'wait_for_ui',
                   'ui_action',
+                  'keyboard_action',
                   'screen_action',
                   'capture_screen',
                   'scroll_until_ui',
@@ -302,6 +383,7 @@ class AiTaskController extends Cubit<AiTaskState> {
                   'read_current_ui',
                   'wait_for_ui',
                   'ui_action',
+                  'keyboard_action',
                   'screen_action',
                   'capture_screen',
                   'scroll_until_ui',

@@ -49,3 +49,12 @@ app.*.map.json
 
 # Kotlin compiler cache
 /android/.kotlin/
+
+# Local Firebase project configuration
+/android/app/google-services.json
+/lib/firebase_options.dart
+/firebase.json
+/.firebase/
+
+# Locally downloaded model weights
+/models/

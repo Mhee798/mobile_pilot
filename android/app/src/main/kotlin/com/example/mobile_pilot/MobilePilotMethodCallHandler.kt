@@ -29,7 +29,7 @@ class MobilePilotMethodCallHandler(private val activity: Activity) : MethodChann
             result.error("SEQUENCE_CANCELLED", "ชุดทดสอบหยุดหรือหมดอายุแล้ว", null)
             return false
         }
-        val tools = setOf("aiBack", "launchApp", "getUiTree", "waitForUi", "scrollUntilUi", "tapElementById", "editElementById", "tapElementByText",
+        val tools = setOf("aiKeyboard", "aiBack", "launchApp", "openSystemSettings", "openLink", "getUiTree", "waitForUi", "scrollUntilUi", "tapElementById", "editElementById", "tapElementByText",
             "tapElementByTextWithGesture", "armScreenCapture", "queuePointTap", "queueDoubleTap", "queueLongPress", "queueSwipe", "queueDrag", "queuePinch", "queueScreenAction", "startSettingsTapTest")
         if (service?.isScrollingForUi == true && call.method in tools && call.method != "launchApp") {
             result.error("SCROLL_BUSY", "หยุดเลื่อนค้นหาก่อนใช้คำสั่งอื่น", null)
@@ -49,7 +49,7 @@ class MobilePilotMethodCallHandler(private val activity: Activity) : MethodChann
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         if (!sessionAllows(call, result)) return
         val target = call.argument<String>("targetPackage")
-        if (target != null && call.method in setOf("getUiTree", "tapElementByText", "tapElementByTextWithGesture", "tapElementById", "editElementById")) {
+        if (target != null && call.method in setOf("aiKeyboard", "getUiTree", "tapElementByText", "tapElementByTextWithGesture", "tapElementById", "editElementById")) {
             if (target.isBlank() || target == activity.packageName) {
                 result.error("INVALID_TARGET", "Select an external target app first.", null)
                 return
@@ -71,6 +71,93 @@ class MobilePilotMethodCallHandler(private val activity: Activity) : MethodChann
         if (!sessionAllows(call, result)) return
         val target = call.argument<String>("targetPackage")
         when (call.method) {
+            "mediaControl" -> {
+                val key = when (call.argument<String>("action")) {
+                    "play" -> android.view.KeyEvent.KEYCODE_MEDIA_PLAY
+                    "pause" -> android.view.KeyEvent.KEYCODE_MEDIA_PAUSE
+                    "next" -> android.view.KeyEvent.KEYCODE_MEDIA_NEXT
+                    "previous" -> android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS
+                    else -> null
+                }
+                if (key == null) result.error("INVALID_ARGUMENT", "คำสั่งสื่อไม่ถูกต้อง", null)
+                else try {
+                    val audio = activity.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+                    audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, key))
+                    audio.dispatchMediaKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, key))
+                    result.success(mapOf("code" to "MEDIA_KEY_DISPATCHED", "message" to "ส่งคำสั่งสื่อแล้ว ยังไม่ยืนยันว่าแอปใดรับหรือทำสำเร็จ"))
+                } catch (error: SecurityException) { result.error("AUDIO_UNAVAILABLE", error.message, null) }
+            }
+            "openMap" -> {
+                val query = call.argument<String>("query")
+                if (query.isNullOrBlank() || query.length > 500) result.error("INVALID_ARGUMENT", "ต้องระบุสถานที่", null)
+                else try {
+                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("geo:0,0?q=" + android.net.Uri.encode(query))).addCategory(Intent.CATEGORY_BROWSABLE)
+                    activity.startActivity(intent)
+                    result.success(mapOf("code" to "INTENT_DISPATCHED", "message" to "ส่งคำขอเปิดแผนที่แล้ว ยังไม่ยืนยันผล"))
+                } catch (_: ActivityNotFoundException) { result.error("INTENT_UNAVAILABLE", "ไม่พบแอปแผนที่", null) }
+                catch (_: SecurityException) { result.error("INTENT_UNAVAILABLE", "ไม่สามารถเปิดแผนที่", null) }
+            }
+            "prepareAlarm" -> {
+                val hour = call.argument<Int>("hour")
+                val minute = call.argument<Int>("minute")
+                if (hour == null || minute == null || hour !in 0..23 || minute !in 0..59) result.error("INVALID_ARGUMENT", "เวลาปลุกไม่ถูกต้อง", null)
+                else try {
+                    val intent = Intent(android.provider.AlarmClock.ACTION_SET_ALARM)
+                        .putExtra(android.provider.AlarmClock.EXTRA_HOUR, hour)
+                        .putExtra(android.provider.AlarmClock.EXTRA_MINUTES, minute)
+                        .putExtra(android.provider.AlarmClock.EXTRA_SKIP_UI, false)
+                    activity.startActivity(intent)
+                    result.success(mapOf("code" to "INTENT_DISPATCHED", "message" to "เปิดแอปนาฬิกาแล้ว กรุณาตรวจและยืนยันเวลา ไม่ได้ยืนยันว่าบันทึกปลุกสำเร็จ"))
+                } catch (_: ActivityNotFoundException) { result.error("INTENT_UNAVAILABLE", "ไม่พบแอปนาฬิกาที่รองรับ", null) }
+                catch (_: SecurityException) { result.error("INTENT_UNAVAILABLE", "ระบบไม่อนุญาตให้เปิดการตั้งปลุก", null) }
+            }
+            "openLink" -> {
+                val url = call.argument<String>("url")
+                val uri = try { android.net.Uri.parse(url ?: "") } catch (_: Exception) { null }
+                if (url.isNullOrBlank() || url.length > 2048 || uri?.scheme !in setOf("https", "http") || uri?.host.isNullOrBlank() || uri?.userInfo != null) {
+                    result.error("INVALID_ARGUMENT", "ลิงก์ไม่ถูกต้อง", null)
+                } else {
+                    try {
+                        activity.startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+                        result.success(mapOf("code" to "LINK_DISPATCHED", "message" to "ส่งลิงก์ให้ Android แล้ว ยังไม่ได้ยืนยันหน้าและแอปที่เปิด"))
+                    } catch (_: ActivityNotFoundException) {
+                        result.error("LINK_UNAVAILABLE", "ไม่พบแอปที่เปิดลิงก์นี้ได้", null)
+                    } catch (_: SecurityException) {
+                        result.error("LINK_UNAVAILABLE", "ระบบไม่อนุญาตให้เปิดลิงก์นี้", null)
+                    }
+                }
+            }
+            "getDeviceInfo" -> {
+                try { result.success(DeviceInfoTools.read(activity)) }
+                catch (error: Exception) { result.error("DEVICE_INFO_UNAVAILABLE", error.message, null) }
+            }
+            "getMediaVolume" -> {
+                try { result.success(DeviceInfoTools.volume(activity)) }
+                catch (error: Exception) { result.error("AUDIO_UNAVAILABLE", error.message, null) }
+            }
+            "setMediaVolume" -> {
+                val value = call.argument<Int>("value")
+                val audio = activity.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+                val max = audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                if (value == null || value < 0 || value > max) result.error("INVALID_ARGUMENT", "Volume must be between 0 and $max", null)
+                else try {
+                    audio.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, value, 0)
+                    result.success(DeviceInfoTools.volume(activity))
+                } catch (error: SecurityException) { result.error("AUDIO_UNAVAILABLE", error.message, null) }
+            }
+            "aiKeyboard" -> {
+                val service = MobilePilotAccessibilityService.activeService
+                val key = call.argument<String>("key")
+                if (service == null || target.isNullOrBlank()) {
+                    result.error("SERVICE_UNAVAILABLE", "Select a target and enable Accessibility", null)
+                } else if (key !in setOf("default", "search", "next", "enter")) {
+                    result.error("INVALID_ARGUMENT", "Invalid keyboard action", null)
+                } else {
+                    val response = KeyboardActionController(service).perform(target, key!!)
+                    if (response.success) result.success(mapOf("code" to response.code, "message" to response.message))
+                    else result.error(response.code, response.message, null)
+                }
+            }
             "getDeviceReadiness" -> {
                 val service = MobilePilotAccessibilityService.activeService
                 val root = service?.rootInActiveWindow
@@ -247,6 +334,39 @@ class MobilePilotMethodCallHandler(private val activity: Activity) : MethodChann
                             }
                         } catch (error: ActivityNotFoundException) {
                             result.error("APP_LAUNCH_FAILED", error.message, null)
+                        }
+                    }
+                }
+            }
+
+            "openSystemSettings" -> {
+                val destination = call.argument<String>("destination")
+                val appPackage = call.argument<String>("packageName")
+                if (destination.isNullOrBlank() ||
+                    (destination == "app_details" && (appPackage.isNullOrBlank() || getLaunchableApps().none { it.packageName == appPackage }))) {
+                    result.error("INVALID_ARGUMENT", "เลือกปลายทางที่รองรับและแอปจากรายการที่ค้นพบ", null)
+                } else {
+                    val intent = SystemSettingsShortcuts.intent(destination, appPackage)
+                    if (intent == null) {
+                        if (destination == "notifications" && android.os.Build.VERSION.SDK_INT < 33)
+                            result.error("SETTINGS_UNAVAILABLE", "หน้านี้ต้องใช้ Android 13 ขึ้นไป", null)
+                        else result.error("INVALID_ARGUMENT", "ไม่รู้จักปลายทางการตั้งค่า", null)
+                    } else {
+                        val resolved = intent.resolveActivity(activity.packageManager)
+                        if (resolved == null || resolved.packageName == activity.packageName || resolved.packageName == "android") {
+                            result.error("SETTINGS_UNAVAILABLE", "เครื่องนี้ไม่มีหน้าตั้งค่าที่เปิดได้โดยตรง", null)
+                        } else {
+                            try {
+                                activity.startActivity(intent)
+                                awaitTarget(resolved.packageName) { ready ->
+                                    if (ready) result.success(mapOf("code" to "TARGET_READY", "packageName" to resolved.packageName))
+                                    else result.success(mapOf("code" to "TARGET_NOT_READY", "message" to "เปิดหน้าแล้วแต่ยังยืนยันแอปเป้าหมายไม่ได้"))
+                                }
+                            } catch (error: ActivityNotFoundException) {
+                                result.error("SETTINGS_UNAVAILABLE", "เครื่องนี้ไม่มีหน้าตั้งค่าที่เลือก", null)
+                            } catch (error: SecurityException) {
+                                result.error("SETTINGS_UNAVAILABLE", "ระบบไม่อนุญาตให้เปิดหน้าตั้งค่านี้", null)
+                            }
                         }
                     }
                 }

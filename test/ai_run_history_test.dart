@@ -29,6 +29,23 @@ void main() {
     await directory.delete(recursive: true);
   });
 
+  test('selected file contents are excluded from diagnostics', () async {
+    final id = await history.start(
+      'อ่านไฟล์',
+      'model',
+      tools: true,
+      image: false,
+    );
+    final step = history.beginStep(id, 'read_selected_file', {});
+    await history.endStep(id, step, {
+      'name': 'notes.txt',
+      'file_text': 'private file body',
+    }, 1);
+    final exported = await history.exportJson();
+    expect(exported, isNot(contains('private file body')));
+    expect(exported, contains('notes.txt'));
+  });
+
   test(
     'stores actual arguments/results and timing without binary images',
     () async {
@@ -149,6 +166,82 @@ void main() {
     });
     await tester.pumpAndSettle();
     expect(find.text('ยังไม่มีประวัติการทำงาน'), findsOneWidget);
+  });
+
+  test(
+    'export includes Thai arguments, model, result and a stable snapshot',
+    () async {
+      final id = await history.start(
+        'ค้นหาแอปตั้งค่า',
+        'model-4b',
+        tools: true,
+        image: false,
+      );
+      final step = history.beginStep(id, 'find_apps', {'query': 'ตั้งค่า'});
+      await history.endStep(id, step, {
+        'apps': [
+          {'label': 'การตั้งค่า'},
+        ],
+      }, 20);
+      final snapshot = await history.exportJson();
+      await history.finish(id, 'responded', '', 'พบแอป', 50);
+      final data = jsonDecode(utf8.decode(utf8.encode(snapshot)));
+      expect(data['schema_version'], 1);
+      final run = (data['runs'] as List).single;
+      expect(run['state'], 'running');
+      expect(run['model'], 'model-4b');
+      expect(run['steps'][0]['arguments']['query'], 'ตั้งค่า');
+      expect(run['steps'][0]['result']['apps'][0]['label'], 'การตั้งค่า');
+      expect(history.runs.single['state'], 'responded');
+    },
+  );
+
+  test(
+    'single-run export excludes other tasks and rejects an expired task',
+    () async {
+      final id = await history.start(
+        'first',
+        'model',
+        tools: false,
+        image: false,
+      );
+      await history.finish(id, 'responded', '', '', 1);
+      await history.start('second', 'model', tools: false, image: false);
+      final data = jsonDecode(await history.exportJson(runId: id));
+      expect((data['runs'] as List).single['request'], 'first');
+      await expectLater(history.exportJson(runId: 'missing'), throwsStateError);
+    },
+  );
+
+  test('long tasks retain latest steps with stable IDs, not results on wrong steps', () async {
+    final id = await history.start(
+      'long task',
+      'model',
+      tools: true,
+      image: false,
+      vision: true,
+    );
+    final old = history.beginStep(id, 'old', {});
+    int? latest;
+    for (var i = 0; i < AiRunHistory.maxSteps + 2; i++) {
+      latest = history.beginStep(id, 'step-$i', {'i': i});
+    }
+    await history.endStep(id, old, {'error': 'late old result'}, 1);
+    await history.endStep(id, latest, {'status': 'correct latest result'}, 2);
+    final run = history.runs.single;
+    final steps = run['steps'] as List;
+    expect(steps, hasLength(AiRunHistory.maxSteps));
+    expect(run['older_steps_omitted'], 3);
+    expect(run['vision_enabled'], isTrue);
+    expect(steps.last['result']['status'], 'correct latest result');
+    expect(
+      steps.any(
+        (step) =>
+            step['result'] is Map &&
+            step['result']['error'] == 'late old result',
+      ),
+      isFalse,
+    );
   });
 
   test('manual app choice is traced with the actual result', () async {

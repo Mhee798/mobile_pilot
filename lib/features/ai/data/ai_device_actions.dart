@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show listEquals;
@@ -20,6 +21,7 @@ class AiDeviceActions {
   DateTime? _capturedAt;
   Uint8List? _pendingImage;
   String? _captureTree;
+  List<Map<String, dynamic>>? _captureNodes;
   Uint8List? _referencePixels;
   String _treeSignature(List<Map<String, dynamic>> nodes) => jsonEncode(
     nodes
@@ -40,6 +42,91 @@ class AiDeviceActions {
         .toList(),
   );
 
+  String _treeAtPoint(
+    List<Map<String, dynamic>> nodes,
+    double x,
+    double y,
+    int width,
+    int height,
+  ) {
+    final px = x * width;
+    final py = y * height;
+    return _treeSignature(
+      nodes.where((node) {
+        final bounds = node['bounds'];
+        if (bounds is! Map) return true;
+        final l = bounds['left'];
+        final t = bounds['top'];
+        final r = bounds['right'];
+        final b = bounds['bottom'];
+        if (l is! num || t is! num || r is! num || b is! num) return true;
+        return px >= l && px < r && py >= t && py < b;
+      }).toList(),
+    );
+  }
+
+  Future<bool> _sameTargetPixels(
+    Uint8List before,
+    Uint8List after,
+    double x,
+    double y,
+  ) async {
+    if (listEquals(before, after)) return true;
+    ui.Image? a;
+    ui.Image? b;
+    try {
+      final codecA = await ui.instantiateImageCodec(before);
+      try {
+        a = (await codecA.getNextFrame()).image;
+      } finally {
+        codecA.dispose();
+      }
+      final codecB = await ui.instantiateImageCodec(after);
+      try {
+        b = (await codecB.getNextFrame()).image;
+      } finally {
+        codecB.dispose();
+      }
+      if (a.width != b.width || a.height != b.height) return false;
+      final first = await a.toByteData(format: ui.ImageByteFormat.rawRgba);
+      final second = await b.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (first == null || second == null) return false;
+      final left = ((x * a.width) - a.width * .05).floor().clamp(
+        0,
+        a.width - 1,
+      );
+      final right = ((x * a.width) + a.width * .05).ceil().clamp(
+        0,
+        a.width - 1,
+      );
+      final top = ((y * a.height) - a.height * .05).floor().clamp(
+        0,
+        a.height - 1,
+      );
+      final bottom = ((y * a.height) + a.height * .05).ceil().clamp(
+        0,
+        a.height - 1,
+      );
+      for (var row = top; row <= bottom; row++) {
+        for (var col = left; col <= right; col++) {
+          final offset = (row * a.width + col) * 4;
+          for (var channel = 0; channel < 3; channel++) {
+            if (first.getUint8(offset + channel) !=
+                second.getUint8(offset + channel)) {
+              return false;
+            }
+          }
+        }
+      }
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      a?.dispose();
+      b?.dispose();
+    }
+  }
+
   void beginTurn() => _cancelled = false;
   Future<void> openTarget(String target) async {
     await platform.launchApp(target, runId: _session);
@@ -48,6 +135,7 @@ class AiDeviceActions {
   void invalidate() {
     _capture = null;
     _captureTree = null;
+    _captureNodes = null;
     _referencePixels = null;
     _capturedAt = null;
     _pendingImage = null;
@@ -87,8 +175,19 @@ class AiDeviceActions {
     _session = id;
     var completed = false;
     try {
-      final readiness = await platform.getDeviceReadiness();
+      var readiness = await platform.getDeviceReadiness();
       _check(epoch);
+      // Waiting here is safe: no command session/action has been dispatched.
+      for (
+        var attempt = 0;
+        readiness?['connected'] == false && attempt < 4;
+        attempt++
+      ) {
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        _check(epoch);
+        readiness = await platform.getDeviceReadiness();
+        _check(epoch);
+      }
       if (readiness?['connected'] == false) {
         throw PlatformException(
           code: 'SERVICE_NOT_READY',
@@ -172,6 +271,18 @@ class AiDeviceActions {
       }
 
       switch (name) {
+        case 'keyboard_action':
+          final key = args['key'];
+          if (!{'default', 'search', 'next', 'enter'}.contains(key)) {
+            throw const FormatException('Invalid keyboard key');
+          }
+          invalidate();
+          return _observed(
+            await dispatch('aiKeyboard', {
+              'targetPackage': target,
+              'key': key,
+            }).timeout(const Duration(seconds: 13)),
+          );
         case 'ui_action':
           var nodeId = args['node_id'];
           final action = args['action'];
@@ -267,9 +378,11 @@ class AiDeviceActions {
               }
               _pendingImage = bytes;
               _referencePixels = bytes;
-              _captureTree = _treeSignature(
-                await platform.getUiTree(targetPackage: target, runId: id),
+              _captureNodes = await platform.getUiTree(
+                targetPackage: target,
+                runId: id,
               );
+              _captureTree = _treeSignature(_captureNodes!);
               _check(epoch);
               if (_captureTree != beforeCapture) {
                 invalidate();
@@ -311,12 +424,35 @@ class AiDeviceActions {
             'pinch': 'queuePinch',
           };
           final method = coordinateMethods[action];
+          final pointAction = {
+            'tap',
+            'double_tap',
+            'long_press',
+          }.contains(action);
+          final x = pointAction ? _number(args, 'x', 0, 1) : null;
+          final y = pointAction ? _number(args, 'y', 0, 1) : null;
           final currentTree = await platform.getUiTree(
             targetPackage: target,
             runId: id,
           );
           _check(epoch);
-          if (_captureTree != _treeSignature(currentTree)) {
+          final treeMatches = pointAction && _captureNodes != null
+              ? _treeAtPoint(
+                      _captureNodes!,
+                      x!,
+                      y!,
+                      capture['width'] as int,
+                      capture['height'] as int,
+                    ) ==
+                    _treeAtPoint(
+                      currentTree,
+                      x,
+                      y,
+                      capture['width'] as int,
+                      capture['height'] as int,
+                    )
+              : _captureTree == _treeSignature(currentTree);
+          if (!treeMatches) {
             invalidate();
             throw const FormatException(
               'Screen content changed after capture. Capture again before acting.',
@@ -342,7 +478,18 @@ class AiDeviceActions {
                 latest['height'] != capture['height'] ||
                 latest['rotation'] != capture['rotation'] ||
                 latest['jpeg'] is! Uint8List ||
-                !listEquals(_referencePixels, latest['jpeg'] as Uint8List)) {
+                _referencePixels == null ||
+                !(pointAction
+                    ? await _sameTargetPixels(
+                        _referencePixels!,
+                        latest['jpeg'] as Uint8List,
+                        x!,
+                        y!,
+                      )
+                    : listEquals(
+                        _referencePixels,
+                        latest['jpeg'] as Uint8List,
+                      ))) {
               invalidate();
               throw const FormatException(
                 'Screen pixels changed before coordinate action. Capture again; no gesture dispatched.',

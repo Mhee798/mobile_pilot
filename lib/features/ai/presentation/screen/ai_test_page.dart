@@ -9,11 +9,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 
-import '../../../../core/platform/mobile_pilot_platform.dart';
 import '../../data/ai_model_service.dart';
 import '../../application/ai_task_controller.dart';
 import '../../data/model_download.dart';
 import 'ai_history_page.dart';
+import 'gemini_test_page.dart';
+import '../widgets/ai_tool_progress.dart';
+import '../widgets/app_icon_cache.dart';
 
 class AiTestPage extends StatefulWidget {
   const AiTestPage({
@@ -45,16 +47,8 @@ class _AiTestPageState extends State<AiTestPage> {
   Uint8List? _attachedImage;
   bool _pickingImage = false;
   bool _visionEnabled = true;
-  final _icons = <String, Future<Uint8List?>>{};
-
-  Future<Uint8List?> _iconFor(String packageName) =>
-      _icons.putIfAbsent(packageName, () async {
-        try {
-          return await const MobilePilotPlatform().getAppIcon(packageName);
-        } catch (_) {
-          return null;
-        }
-      });
+  bool _thinkingEnabled = true;
+  final _icons = AppIconCache();
   bool _toolsEnabled = false;
   static const _debugInput = MethodChannel('com.mobilepilot/debug_input');
 
@@ -73,6 +67,7 @@ class _AiTestPageState extends State<AiTestPage> {
     }
     _toolsEnabled = _cubit.service.toolsEnabled;
     _visionEnabled = _cubit.service.visionEnabled;
+    _thinkingEnabled = _cubit.service.thinkingEnabled;
     if (kDebugMode) {
       _debugInput.setMethodCallHandler((call) async {
         if (call.method != 'fillPrompt') throw MissingPluginException();
@@ -177,6 +172,22 @@ class _AiTestPageState extends State<AiTestPage> {
           appBar: AppBar(
             title: const Text('ทดสอบ AI'),
             actions: [
+              IconButton(
+                tooltip: 'ทดสอบ Gemini Cloud',
+                onPressed: state.busy
+                    ? null
+                    : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => GeminiTestPage(
+                            history: _cubit.service.history,
+                            controller: _cubit,
+                            uiSnapshot: widget.uiSnapshot,
+                            targetPackage: widget.targetPackage,
+                          ),
+                        ),
+                      ),
+                icon: const Icon(Icons.cloud_outlined),
+              ),
               if (_cubit.service.history case final history?)
                 IconButton(
                   tooltip: 'ประวัติการทำงาน AI',
@@ -224,6 +235,8 @@ class _AiTestPageState extends State<AiTestPage> {
                       Expanded(
                         child: Text(
                           state.status,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
@@ -245,13 +258,10 @@ class _AiTestPageState extends State<AiTestPage> {
                       ),
                     ),
                   ),
-                if (state.toolsUsed.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(
-                      'เครื่องมือที่ใช้รอบล่าสุด: ${state.toolsUsed.join(', ')}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
+                if (state.toolsUsed.isNotEmpty || state.toolResults.isNotEmpty)
+                  AiToolProgress(
+                    tools: state.toolsUsed,
+                    results: state.toolResults,
                   ),
                 if (_toolsEnabled &&
                     !state.busy &&
@@ -261,14 +271,6 @@ class _AiTestPageState extends State<AiTestPage> {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Text(
                       'รอบนี้ AI ไม่ได้เรียกเครื่องมือ',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                for (final result in state.toolResults)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(
-                      result,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
@@ -436,7 +438,7 @@ class _AiTestPageState extends State<AiTestPage> {
                                               mainAxisSize: MainAxisSize.min,
                                               children: [
                                                 FutureBuilder<Uint8List?>(
-                                                  future: _iconFor(
+                                                  future: _icons.get(
                                                     app['packageName']!,
                                                   ),
                                                   builder:
@@ -584,6 +586,19 @@ class _AiTestPageState extends State<AiTestPage> {
     childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
     children: [
       SwitchListTile(
+        value: _thinkingEnabled,
+        title: const Text('Thinking Mode'),
+        subtitle: const Text(
+          'เปิดทดลอง · เปลี่ยนได้ก่อนเริ่มแชท อาจใช้เวลาตอบมากขึ้น',
+        ),
+        onChanged: state.busy || state.messages.isNotEmpty
+            ? null
+            : (value) => setState(() {
+                _thinkingEnabled = value;
+                _cubit.service.thinkingEnabled = value;
+              }),
+      ),
+      SwitchListTile(
         value: _toolsEnabled,
         title: const Text('ให้ AI ทดลองใช้เครื่องมือ'),
         subtitle: const Text(
@@ -607,8 +622,52 @@ class _AiTestPageState extends State<AiTestPage> {
                 _cubit.service.visionEnabled = value;
               }),
       ),
+      DropdownButtonFormField<int>(
+        initialValue: _cubit.service.contextTokens,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Context สำหรับการโหลดครั้งถัดไป',
+        ),
+        items: const [
+          DropdownMenuItem(value: 8192, child: Text('8K (8,192 tokens)')),
+          DropdownMenuItem(value: 12288, child: Text('12K (12,288 tokens)')),
+          DropdownMenuItem(value: 16384, child: Text('16K (16,384 tokens)')),
+        ],
+        onChanged: state.busy
+            ? null
+            : (value) {
+                if (value != null) {
+                  setState(() => _cubit.service.contextTokens = value);
+                }
+              },
+      ),
+      Text(
+        state.ready
+            ? 'โมเดลที่โหลดอยู่: ${_cubit.service.loadedContextTokens ?? 'ไม่ทราบ'} tokens · โหลดโมเดลใหม่เพื่อเปลี่ยนขนาด'
+            : 'เลือกก่อนโหลดโมเดล · ขนาดใหญ่ขึ้นอาจใช้ RAM มากและช้าลง',
+      ),
+      SwitchListTile(
+        value: !_cubit.service.proactiveContextRotation,
+        title: const Text('ทดลองคง context ให้นานขึ้น'),
+        subtitle: const Text(
+          'ปิด: หมุนตามเกณฑ์เดิม · เปิด: ไม่หมุนตามจำนวนรอบหรือขนาดผล แต่ runtime อาจตัดประวัติหรือเริ่ม session ใหม่เมื่อเต็ม',
+        ),
+        onChanged: state.busy || state.messages.isNotEmpty
+            ? null
+            : (value) => setState(() {
+                _cubit.service.proactiveContextRotation = !value;
+              }),
+      ),
       const Text(
         'ดาวน์โหลดโมเดลหรือเลือกไฟล์ .litertlm ที่มีอยู่ การดาวน์โหลดต้องใช้อินเทอร์เน็ตและพื้นที่ว่าง',
+      ),
+      OutlinedButton.icon(
+        onPressed: state.busy ? null : _cubit.loadGeminiNano,
+        icon: const Icon(Icons.phone_android),
+        label: const Text('ใช้ Gemini Nano ของอุปกรณ์'),
+      ),
+      const Text(
+        'ต้องมี Android และ AICore ที่รองรับ ระบบอาจดาวน์โหลดโมเดลเพิ่ม · ไม่รองรับ Thinking Mode',
       ),
       const SizedBox(height: 12),
       DropdownButtonFormField<String>(
