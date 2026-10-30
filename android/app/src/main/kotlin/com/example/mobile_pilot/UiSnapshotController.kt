@@ -11,8 +11,11 @@ import java.util.UUID
 
 /** References belong to one bounded tree snapshot. No Android nodes are retained between calls. */
 class UiSnapshotController(private val service: AccessibilityService) {
-    private data class Snapshot(val id: String, val packageName: String, val fingerprint: String, val nodes: Set<String>)
-    private data class Tree(val elements: List<Map<String, Any?>>, val fingerprint: String, val target: AccessibilityNodeInfo?)
+    private data class Snapshot(val id: String, val packageName: String, val fingerprint: String,
+        val nodes: Map<String, Map<String, Any?>>, val anchors: Map<String, Map<String, Any?>>,
+        val windowId: Int, val complete: Boolean)
+    private data class Tree(val elements: List<Map<String, Any?>>, val fingerprint: String,
+        val target: AccessibilityNodeInfo?, val complete: Boolean, val anchors: Map<String, Map<String, Any?>>)
     private var snapshot: Snapshot? = null
 
     fun invalidate() { snapshot = null }
@@ -28,7 +31,8 @@ class UiSnapshotController(private val service: AccessibilityService) {
             if (targetPackage != null && targetPackage != pkg) throw IllegalStateException("Target app is no longer foreground.")
             val tree = collect(root)
             val id = UUID.randomUUID().toString()
-            snapshot = Snapshot(id, pkg, tree.fingerprint, tree.elements.map { it["nodeId"] as String }.toSet())
+            snapshot = Snapshot(id, pkg, tree.fingerprint,
+                tree.elements.associateBy { it["nodeId"] as String }, tree.anchors, root.windowId, tree.complete)
             return tree.elements.map { it + mapOf("screenId" to id, "packageName" to pkg) }
         } finally { root.recycle() }
     }
@@ -53,7 +57,8 @@ class UiSnapshotController(private val service: AccessibilityService) {
             if (root.packageName?.toString() != targetPackage) return TapResult(false, "TARGET_NOT_READY", "แอปเป้าหมายไม่อยู่ด้านหน้า")
             val tree = collect(root, nodeId)
             target = tree.target
-            if (tree.fingerprint != saved.fingerprint) {
+            if (tree.fingerprint != saved.fingerprint &&
+                !(inputAction == null && root.windowId == saved.windowId && sameAnchoredTarget(saved, tree, nodeId))) {
                 invalidate()
                 return TapResult(false, "STALE_SCREEN", "หน้าจอเปลี่ยนแล้ว กรุณาอ่าน UI tree ใหม่ก่อนแตะ")
             }
@@ -82,13 +87,48 @@ class UiSnapshotController(private val service: AccessibilityService) {
         } finally { if (target !== root) target?.recycle(); root.recycle() }
     }
 
+    /** Allow unrelated live content to change only when the exact target, all
+     * ancestors, and either a unique resource-ID + label or a unique content
+     * description with class and nonempty bounds still match. No fuzzy
+     * matching, path rebinding, editing, or truncated-tree fallback. */
+    private fun sameAnchoredTarget(saved: Snapshot, tree: Tree, nodeId: String): Boolean {
+        if (!saved.complete || !tree.complete) return false
+        val before = saved.nodes[nodeId] ?: return false
+        val current = tree.elements.associateBy { it["nodeId"] as String }
+        if (before != current[nodeId] || saved.anchors[nodeId] != tree.anchors[nodeId]) return false
+        val resource = before["resourceId"] as? String
+        val label = (before["text"] as? String)?.takeIf { it.isNotBlank() }
+            ?: (before["contentDescription"] as? String)?.takeIf { it.isNotBlank() }
+        if (label == null) return false
+        val description = (before["contentDescription"] as? String)?.takeIf { it.isNotBlank() }
+        if (resource.isNullOrBlank()) {
+            val klass = before["className"] as? String
+            val bounds = before["bounds"] as? Map<*, *> ?: return false
+            val width = ((bounds["right"] as? Int) ?: 0) - ((bounds["left"] as? Int) ?: 0)
+            val height = ((bounds["bottom"] as? Int) ?: 0) - ((bounds["top"] as? Int) ?: 0)
+            if (description == null || klass.isNullOrBlank() || width <= 0 || height <= 0) return false
+        }
+        fun sameIdentity(node: Map<String, Any?>) =
+            if (resource.isNullOrBlank()) node["contentDescription"] == description
+            else node["resourceId"] == resource && node["text"] == before["text"] && node["contentDescription"] == before["contentDescription"]
+        if (saved.nodes.values.count(::sameIdentity) != 1 || tree.elements.count(::sameIdentity) != 1) return false
+        var parent = nodeId.substringBeforeLast('.', "")
+        while (parent.isNotEmpty()) {
+            if (saved.anchors[parent] == null || saved.anchors[parent] != tree.anchors[parent]) return false
+            parent = parent.substringBeforeLast('.', "")
+        }
+        return true
+    }
+
     private fun collect(root: AccessibilityNodeInfo, wanted: String? = null): Tree {
         val elements = mutableListOf<Map<String, Any?>>()
+        val anchors = mutableMapOf<String, Map<String, Any?>>()
         val records = JSONArray()
         var count = 0
+        var complete = true
         var target: AccessibilityNodeInfo? = null
         fun visit(node: AccessibilityNodeInfo, path: String, depth: Int) {
-            if (depth > 30 || count >= 500) return
+            if (depth > 30 || count >= 500) { complete = false; return }
             count++
             val text = node.text?.toString()
             val description = node.contentDescription?.toString()
@@ -99,17 +139,24 @@ class UiSnapshotController(private val service: AccessibilityService) {
                 node.className?.toString(), bounds.flattenToString(), node.isVisibleToUser,
                 node.isEnabled, node.isClickable, node.isEditable, node.isPassword, node.isScrollable,
                 node.isCheckable, node.isChecked, node.isSelected, node.childCount)))
+            anchors[id] = mapOf("text" to text, "description" to description, "resourceId" to resourceId,
+                "class" to node.className?.toString(), "bounds" to bounds.flattenToString(),
+                "visible" to node.isVisibleToUser, "enabled" to node.isEnabled, "clickable" to node.isClickable,
+                "editable" to node.isEditable, "password" to node.isPassword, "scrollable" to node.isScrollable,
+                "checkable" to node.isCheckable, "checked" to node.isChecked, "selected" to node.isSelected,
+                "children" to node.childCount)
             if (!text.isNullOrBlank() || !description.isNullOrBlank() || resourceId != null || node.isClickable || node.isEditable) {
                 elements += mapOf("nodeId" to id, "text" to text, "contentDescription" to description,
                     "resourceId" to resourceId, "className" to node.className?.toString(),
                     "clickable" to node.isClickable, "editable" to node.isEditable, "password" to node.isPassword,
                     "visible" to node.isVisibleToUser, "enabled" to node.isEnabled,
                     "checkable" to node.isCheckable, "checked" to node.isChecked, "selected" to node.isSelected, "depth" to depth,
+                    "childCount" to node.childCount,
                     "bounds" to mapOf("left" to bounds.left, "top" to bounds.top, "right" to bounds.right, "bottom" to bounds.bottom))
                 if (id == wanted) target = node
             }
             for (index in 0 until node.childCount) {
-                if (count >= 500) break
+                if (count >= 500) { complete = false; break }
                 val child = node.getChild(index) ?: continue
                 try { visit(child, "$path.$index", depth + 1) } finally { if (child !== target) child.recycle() }
             }
@@ -118,7 +165,7 @@ class UiSnapshotController(private val service: AccessibilityService) {
             visit(root, "0", 0)
             val hash = MessageDigest.getInstance("SHA-256").digest(records.toString().toByteArray(Charsets.UTF_8))
                 .joinToString("") { "%02x".format(it) }
-            return Tree(elements, hash, target)
+            return Tree(elements, hash, target, complete, anchors)
         } catch (error: Exception) { if (target !== root) target?.recycle(); throw error }
     }
 }
