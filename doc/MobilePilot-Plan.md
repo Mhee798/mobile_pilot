@@ -1,12 +1,21 @@
 # MobilePilot --- AI Mobile Use for Android
 
+> Latest update (2026-10-30, Bangkok): Gemini Cloud through Firebase AI Logic
+> now has a separate test chat, the existing device tools, app-choice UI,
+> diagnostic history/export and Live Updates. Real-device examples include
+> opening Settings/Wi-Fi and searching Shopee with newly entered text. These
+> examples do not establish broad reliability. The system-settings shortcut
+> and revised screenshot point validation have passed automated checks but
+> still need real-device verification. Next: repeatable device tests and a
+> saved, deterministic tool workflow; see the current status below.
+
 > AI device-test update (2026-10-28): Thai and English requests can open Settings
 > and tap into Wi-Fi using exact, unique UI labels. End-to-end completion is
 > still inconsistent: goal-evidence selection can be missing/ambiguous, so the
 > controller stops instead of claiming success. One Thai run verified the
 > destination; later runs still failed verification. Latest Flutter suite:
 > 148 tests passed; analysis/debug build passed. See `Testing.md` for evidence.
-> Next priority: reliable goal-evidence selection and reporting, not more tools.
+> This is a historical result; current priorities are listed below.
 
 > Run-history update (2026-10-28): Added private, expandable diagnostic history
 > with tool arguments/results, timing, model identity, stop reason and clearing.
@@ -36,12 +45,15 @@ Engine.
 > behavior, permissions, OS version, and app restrictions must be tested
 > on real devices.
 
-## Current Implementation Status — 2026-10-28
+## Current Implementation Status — 2026-10-30 (Bangkok)
 
-The project has manual controls plus an **on-device AI chat prototype** using
-Gemma/LiteRT-LM. App search/open/read and resuming after an app choice have been
-confirmed by the user. The remaining device capabilities are now wired into
-typed AI tools; model-driven reliability across apps is still being tested.
+The project has manual controls, an on-device Gemma/LiteRT-LM chat and a
+separate Gemini Cloud test chat via Firebase AI Logic. The cloud chat uses a
+separate tool loop, not yet the same orchestrator as local inference. Users have
+confirmed several multi-step cloud tasks; device compatibility, background
+execution and reliable end-to-end completion still require more testing. The
+configured Firebase files are local and ignored by Git; a fresh checkout needs
+its own Firebase configuration.
 
 | Area | Status | Evidence / limit |
 | --- | --- | --- |
@@ -56,14 +68,22 @@ typed AI tools; model-driven reliability across apps is still being tested.
 | Focused text entry | Verified on device | On 2026-10-26, `MP_SAFE_TEST_42` was inserted into Chrome's focused address field on a PTP N49. It was not submitted. Password fields are blocked. |
 | Floating controls | Implemented, basic | Accessibility service can show a draggable bubble and action panel, including cancel. Overlay behavior needs more device/app testing. |
 | Deterministic command sequence | Implemented, basic | Explicitly launches one selected app, waits, reads a fresh tree, clicks one unique node and waits for a new result. Stops on failure, cancellation or stale references; no AI or persistent recovery. |
-| AI chat, tools and Vision | Prototype connected | Local model selection/download, chat/images, app choice continuation, UI and action tools. Bounded 8-round/12-call loop; action reliability still needs model/device tests. No persistent task history or recovery. |
-| Verification and task lifecycle | Partial | App-owned AI controller survives chat navigation; floating panel shows AI status and Stop cancels model/native work. Native leases validate target and references. Goal verification still needs AI to reread the screen; no foreground service or process-death recovery. |
+| Local AI chat, tools and Vision | Prototype connected | Gemma model selection/download; 8K, 12K and 16K context settings and an experimental longer-context policy. Task context can be summarized and rotated; the runtime may also trim it. Local multi-step reliability remains inconsistent. |
+| Gemini Cloud chat and tools | Prototype connected | Firebase AI Logic chat, app-choice continuation and typed tools, including separately opted-in screenshot delivery. On-device tests demonstrated Settings/Wi-Fi, YouTube and a new Shopee search, not all tools or app states. The current cloud loop has a 12-round bound. |
+| System settings shortcuts | Implemented; device verification pending | `open_system_settings` supports common Android settings pages including Cast and selected app details. A launch must confirm the foreground package; unsupported or unconfirmed destinations are reported. |
+| Additional Android tools | Prototype; device verification pending | Read device/battery/storage data, read/set media volume, dispatch media keys, open user-supplied HTTP(S) links, map searches and alarm UI. Gemini can read a user-selected small UTF-8 text file; custom-scheme deep links, file editing and creation are not yet supported. Intent dispatch does not prove task completion. |
+| Screen-change handling | Implemented; device verification pending | For point actions, the revised image check compares the area around the point and relevant UI nodes; changed target content is rejected. Gemini stops after repeated screen-change failures. Animated-banner behavior needs a repeatable real-device fixture. |
+| Diagnostic history and export | Implemented | Retains recent requests, model labels, tool arguments/results, timing and status; supports JSON export. History is diagnostic, may be truncated, can contain private UI data, and is not a replay queue. |
+| Live Updates and task lifecycle | Partial | Local and cloud test chats publish progress and Stop through the shared overlay/notification. Presentation depends on OS, device and notification permission; background execution and process-death recovery are not guaranteed. A model response or dispatched action alone does not prove task completion. |
+| Saved tool workflows | Planned | No saved workflow editor or persistent replay runner yet. The existing deterministic command sequence and AI diagnostic history do not provide this feature. |
 
-The latest `flutter analyze`, Android debug build, and installation on the
-connected device succeeded. These checks confirm the current prototype builds;
-they do not satisfy the MVP reliability target or prove broad app compatibility.
+Recent scoped Flutter tests, Android shortcut unit tests, analysis and debug
+build passed; the settings-shortcut build was installed on the phone. The last
+real-device result for the new shortcut was not verified in this session.
+Automated image-change tests passed; actual animated-banner behavior remains
+unverified. These checks do not prove broad app compatibility.
 
-After the controller refactor, a PTP N49 smoke run on 2026-10-26 verified app
+Historical result: after the controller refactor, a PTP N49 smoke run on 2026-10-26 verified app
 launch, UI-tree reading, capture/point tap, floating gestures, focused text entry,
 cancellation and capture expiry/retry. A point-tap window-event cancellation bug
 found during that run was fixed and covered by two regression tests. The native
@@ -93,6 +113,87 @@ suite now passes 158 tests and the Flutter suite passes 63; see
 - `wait_for_ui` supports presence, enabled, disappearance and text changes.
   AI tools now include UI actions, capture/gestures, scroll search and navigation;
   see [AI tool guide](AI-Tool-Guide.md) for schemas and limits.
+
+### Planned: saved tool workflows / shortcuts
+
+**Goal:** a user can review and save a sequence of MobilePilot tool operations,
+then tap a named shortcut to run that sequence later without asking an AI to
+plan it again. This is a structured, deterministic workflow, not arbitrary
+Python, JavaScript, shell code or executable code downloaded from elsewhere.
+Nothing in this section is implemented yet.
+
+Example: **Open Wi-Fi and read status**
+
+1. Open the Android Wi-Fi settings destination.
+2. Wait until the expected target is available.
+3. Read the current UI and show the observed result.
+
+The example opens and reads a page; it does not toggle Wi-Fi. Actual available
+UI and direct settings destinations vary by device.
+
+**Creation and management**
+
+- [ ] Define a versioned workflow record: name, ordered typed steps, arguments,
+  expected outcomes and optional input parameters. Store it separately from
+  the existing diagnostic history in private app storage.
+- [ ] Allow AI to propose a workflow from a completed task or a user request;
+  show the proposed steps and arguments for review, editing and explicit save.
+  A diagnostic trace is evidence for a proposal, not an executable replay.
+- [ ] Provide a list with create/edit, rename, delete and run controls. Decide
+  how parameters such as a search term are supplied before each run; never
+  infer missing values from an old task.
+- [ ] Specify version migration, malformed-record handling and limits on saved
+  workflows and steps. Failed or interrupted runs must not silently resume.
+
+**Runner and correctness**
+
+- [ ] Build an app-owned runner that executes allowed, typed tools sequentially,
+  waits for each result and shows progress, Stop, the failed step and reason.
+  Keep this separate from the AI planner and reuse existing tool validation,
+  cancellation and target-app/foreground checks.
+- [ ] Resolve targets again on each run: do not persist or replay old UI refs,
+  native node IDs, screenshot IDs or raw coordinates as proof of a target.
+  Prefer a fresh UI read and a sufficiently specific selector; verify that the
+  match is unique and usable. If no safe match exists, stop and ask the user.
+  Vision-based steps require a new capture and target decision each run; a
+  deterministic first version may explicitly mark these steps unsupported.
+- [ ] Treat dispatched actions as dispatched, not proof of the desired outcome.
+  Re-read or check a step-specific observable condition where appropriate;
+  distinguish success, unverified, failed, cancelled and interrupted states.
+- [ ] Preserve existing user control for consequential actions and disclose
+  when a workflow uses screenshots or cloud inference. Replaying a saved
+  workflow does not imply approval of a changed or ambiguous target.
+- [ ] Save each run to diagnostic history with workflow identity, step results
+  and reason for stopping; retain existing export and avoid saving images by
+  default. Workflow storage and execution history have different lifetimes.
+
+**Delivery and checks**
+
+1. [ ] Implement typed workflow records, persistence and validation; test
+   round-trip, invalid versions and unsupported steps.
+2. [ ] Add a runner and test success, ambiguous/missing target, wrong app,
+   tool failure, cancellation and interruption without replaying stale refs.
+3. [ ] Add creation from a reviewed task proposal and a minimal management UI;
+   test editing, explicit saving and running again after reopening the app.
+4. [ ] Test on a real phone with a harmless Wi-Fi settings/read workflow, then
+   repeat under changed layouts and missing targets. Verify that a saved
+   workflow runs without an AI request when all its steps are deterministic.
+
+### Near-term priorities
+
+1. Test the settings shortcut on the connected phone, including unsupported
+   destinations, foreground confirmation and a subsequent UI read. Expand
+   version-specific or parameterized destinations only with their required inputs.
+2. Make a deterministic screen-change fixture: an animated region outside the
+   target, a changed target, a changed page and ambiguous/missing UI targets.
+   Validate image-point safety and retry stopping on a real device.
+3. Test remaining Gemini-connected actions on device, including typing, wait,
+   scroll and gestures, and distinguish model responses from verified outcomes.
+4. Implement the reviewed, saved workflow feature above; do not build a generic
+   code execution runtime as part of this scope.
+
+See [Model testing results](Model-Testing-Results.md) for observed Gemma and
+Gemini behavior and [AI tool guide](AI-Tool-Guide.md) for the tool catalog.
 
 ## 2. Product Experience
 

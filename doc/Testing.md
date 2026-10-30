@@ -2,6 +2,100 @@
 
 Run these commands from the repository root.
 
+## Search verification evidence
+
+Model-facing `verify_goal(ref)` rejects an editable input as insufficient
+evidence of completed search or other outcomes. This can also prevent confirming
+typing-only tasks through that path; those tasks need a separate explicit text
+verification mechanism. Completion review instructs the model to stop navigating
+when a search-only request has reached results. This is a model instruction, not
+a deterministic guarantee of stopping or of correctly identifying results.
+
+## Dynamic target without resource ID
+
+For tapping only, a changed complete tree may retain a target without a resource
+ID if the same path and ancestors match, its nonempty content description is
+unique in both trees, and its class and nonempty bounds are unchanged. A changed
+target, ancestor, window, duplicate description, truncated tree, or edit still
+rejects the old reference. Android tests cover the accepted and duplicate cases.
+Shopee device verification is still required; history did not establish all native
+identity fields or the exact cause of every stale-screen rejection.
+
+## Reporting observed UI facts
+
+Follow-up fix: model-provided `evidence_refs` are no longer required or used.
+The adapter attaches its latest observed UI page and snapshot ID itself. Missing
+UI and invalid summaries still reject the report. Once a report is attempted,
+device-changing tools are blocked for the rest of that turn; the model may read
+and correct its summary without navigating away. This preserves the source used
+for reporting but does not prove the semantic accuracy of the generated summary.
+Tests cover missing UI, automatic evidence, ignored legacy refs, and report repair
+that blocks navigation then returns the corrected answer.
+
+`report_observation(summary,evidence_refs)` provides a separate finish path for
+read/list/explain tasks. It validates 1–10 refs against the current adapter tree;
+the loop requires a fresh observation and a single tool call before returning
+the answer without `verify_goal`. This validates reference freshness, not the
+semantic truth of the generated summary or completion of arbitrary action tasks.
+The completion-review prompt directs reading tasks here and keeps action tasks
+on the existing verification path. Regressions cover returning a UI report and
+rejecting evidence from an earlier read. Real-device Wi-Fi completion remains
+to be confirmed after installation.
+
+## Compact target references (2026-10-29)
+
+Model-facing UI payloads encode native adapter refs as uppercase alphabetic
+aliases (1=A, 26=Z, 27=AA). The model schema requires a string ref. Aliases
+remain globally unique during the adapter lifetime, rather than resetting to A
+after each read; old replies cannot resolve to a new observation's target.
+Legacy numeric refs remain accepted internally. Tests cover 10,000 lossless
+unique aliases, compact payloads, and rejecting a late alias without dispatch.
+This is the first target-interface change, not evidence of better model accuracy.
+Fixed-screen model benchmarks, phase-specific tool catalogs, and complete-task
+success measurements remain to be implemented.
+
+## Live Update / HONOR Magic Capsule (2026-10-29)
+
+AI task statuses now publish an ongoing system notification with elapsed time
+and Stop, using the same controller callback as the floating panel. It is removed
+when generation ends. This notification does not keep the AI process alive.
+Android 36+ receives the documented `android.requestPromotedOngoing` extra;
+the SDK 36.1 Builder method is unavailable in the installed 36.0 compile SDK.
+Older versions retain the normal notification. Notification permission is requested
+on the first active AI task, and denial never blocks inference.
+
+On the HONOR Android 16 device, a debug-only 30-second probe was promoted
+(`PROMOTED_ONGOING`), visibly displayed the icon and timer in Magic Capsule,
+and showed status text and Stop in the notification shade. Stop removed the probe.
+Expanded capsule presentation and stopping a real inference still need manual
+confirmation. The probe starts no model or device actions. Host notification
+lifecycle/permission/dismissal tests passed on Robolectric API 34; API 36 host
+execution requires Java 21, while the installed runtime is Java 17.
+
+## Unverified-completion recovery (2026-10-29)
+
+Follow-up logs showed models repeatedly emitted `ui_action(action=tap,text=...)`
+without either target field despite validation feedback. The model-facing schemas
+now require `ref` for both `ui_action` and `verify_goal`, with no alternative
+`label` property. The adapter retains legacy label support for existing callers;
+it never interprets replacement text as a target. A schema regression checks
+these required fields. Device behavior must be checked after installing this change.
+
+On the first updated music run, the model emitted `ui_action(ref=3,action=tap)`
+correctly, but native whole-tree freshness rejected it with `STALE_SCREEN`.
+Tap freshness now tolerates unrelated live-content updates only if the tree is
+complete, the window is the same, the exact target and every ancestor remain
+unchanged, and its resource ID plus semantic label identifies one element in both
+reads. It never rebinds a path, guesses a label, or applies this fallback to input
+editing. Native regressions cover unrelated content, duplicate/missing identity,
+changed target/window/ancestor, editing, and single-use references.
+
+Regression tests cover missing UI targets (`text` alone must never tap),
+fresh UI recovery after an unverified final reply, successful verification after
+recovery, and termination after two unsuccessful recovery observations. Recovery
+does not replay actions or claim completion. Real-device music playback still
+needs confirmation after installing this update.
+
 ## Flutter
 
 ```powershell
@@ -433,3 +527,37 @@ After the tool simplification, the native suite passed 165 tests, Flutter passed
 - Refactored state/message definitions out of the task controller, separated tool-result presentation handling, and consolidated result callbacks. Reviews covered reuse, quality, efficiency and Android integration. Fixed cancellation during history initialization, uncertain restored steps, untraced manual app choices, and exact-label truncation discovered by review.
 - Validation: 157 Flutter tests and 168 Android app unit tests passed; analysis and debug APK build passed. The broad Gradle task including third-party plugin tests hit a cross-drive plugin configuration failure; the intended `:app:testDebugUnitTest` suite passed.
 - Installed normally with `adb install -r`. On the connected phone, “ค้นหาแอปตั้งค่า ไม่ต้องเปิดแอป” created a persisted `find_apps` step with tools enabled and loaded model file identity. The history page displayed the run, elapsed times, and expandable tool details. This smoke test checks history capture, not general goal-verification reliability.
+
+### History JSON export — 2026-10-29
+
+- History toolbar exports all retained runs; expanded runs have “ส่งออกงานนี้” for a single run. Android's file-save dialog lets the user choose a destination. Cancellation does not show a success message or alter history.
+- UTF-8 JSON includes format/schema version, UTC export time and a snapshot of retained records. Running records remain explicitly running in the exported snapshot. Existing truncation and omitted-image rules still apply; exports do not recover evicted or truncated details.
+- History/export suite: 10 tests passed, including Thai argument/result roundtrip, snapshot stability and single-run selection/missing-run handling. Analysis passed.
+
+### Continuous tasks and bounded diagnostics — 2026-10-29
+
+- Production tool mode now rolls native chat context at segment thresholds rather than ending the task. App-owned state retains the original request, target, initial/recent dispatched actions, counts, recent observed results and stale-marked UI. Closing a chat invalidates old node/image references; a fresh observation is required before another action. Process-death recovery still does not replay work automatically.
+- A fresh UI read permits the next action. A matched intermediate condition no longer blocks remaining actions. Reopening the target is allowed when a fresh read cannot complete. Capacity errors during inference can restart context once without replaying dispatched tools. Repeated unchanged attempts/no progress still stop; each awaited operation has a timeout, not a three-minute total task cutoff.
+- Regression coverage includes 20 simulated action steps across several context rotations, intermediate verification, capacity recovery without duplicate dispatch, Stop during rotation, reopening an unavailable target, empty-turn recovery and transient service-readiness waiting. UI ordering prioritizes editable controls and visible top-to-bottom labels, preserving traversal order for equal positions.
+- Tool diagnostics are collapsed and height-bounded, with only the latest 30 display entries retained. A widget regression with 100 tool results and an open keyboard confirms chat/input remain visible even with expanded diagnostics.
+- Device evidence: a YouTube attempt continued through 29 recorded steps and three context checkpoints before stopping for no progress/target unavailability. This demonstrates continuation beyond old task limits, not successful playback. UI staleness, service availability and model strategy remain issues.
+- Export inspected before the automatic fallback change: 26 retained runs contained 73 live UI reads but only one capture call, in an older Shopee run. Capture was model-selected; Vision availability alone did not cause screenshots.
+
+### Automatic visual fallback — 2026-10-29
+
+- With loaded Vision enabled, repeated identical UI observations without an accepted action, repeated recoverable UI-targeting errors, or an invalid/expired capture reference trigger a controller-requested capture. Normal reads after actions and advancing UI pages do not trigger it. Same-view attempts are suppressed and at most two attempts are allowed without an accepted action, including capacity-error recapture.
+- Synthetic observations use an image-bearing controller message, not a fabricated function-call response. Context rollover happens before an automatic capture; the next inference receives the image before another rollover. A same-batch screen action after a model-requested capture is blocked until another inference has seen the image. Stop prevents pending captures/actions.
+- Capture failure reports no image, preserving the native target/freshness checks. No screenshot bytes are stored in run history. `capture_screen` records the trigger and Vision state; `image_to_model: added_to_context` is recorded only after adding image bytes to the SDK chat succeeds. This confirms delivery to context, not visual comprehension or goal completion.
+- Long runs now retain the latest 40 steps with stable step IDs and an explicit omitted-step count, so late capture/delivery events remain exportable. Old asynchronous results cannot overwrite a different step after eviction.
+
+### Capture-to-input and search submission follow-up — 2026-10-29
+
+- Wireless-device Shopee run confirmed automatic `capture_screen` succeeded after repeated UI reads, followed by `image_to_model: added_to_context`. The next label-based input exposed a stale native snapshot: capture reads native trees internally while the adapter still held older node references. Capture now refreshes/caches UI and includes compact `ui_after_capture` with the image; a rotating-native-snapshot regression verifies typing uses the new reference.
+- A subsequent user run replaced the search text with MacBook successfully, then invented labels “ค้นหา” and “ปุ่มแว่นค้นหา” rather than submitting. Added `keyboard_action(key=search/default/next/enter)` backed by the existing target/focus/password-checked keyboard controller, under the action session. No screenshot is required for this non-coordinate action. Replacement results explicitly state that insertion is not submission.
+- Validation: 180 Flutter tests, Android app unit suite, analysis and debug build passed. Tests cover current references after capture and a single Search dispatch without capture. These establish the bridge behavior; a completed model-driven Shopee search with the new tool still requires device verification.
+
+### Do not end on search results — 2026-10-29
+
+- Observed a local-model turn returning `call:read_current_ui{}<tool_call|>` as plain text. Added strict normalization for complete LiteRT wire markers containing a declared tool and valid JSON only. Prose/fences/unknown tools are not executed. Normalized calls receive a controller-result message rather than an orphan function response. Malformed markers get bounded correction prompts.
+- A YouTube run reached the requested song's search results after automatic capture, then stopped after context rotation before selecting playback. Handoff now supplies a fresh controller UI observation automatically. Before accepting final text after dispatched actions, the controller reviews the complete original request and asks for any remaining actions rather than treating an intermediate search result as completion.
+- Regression tests simulate a model that says “found results” prematurely and proceeds to Play only after the completion review, plus fresh UI delivery before post-handoff inference. Full Flutter suite: 186 passed; analysis/debug build passed. This verifies controller behavior, not guaranteed correct planning or playback by every local-model run.
