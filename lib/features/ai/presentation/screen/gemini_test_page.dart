@@ -16,6 +16,9 @@ import '../../data/gemini_device_chat.dart';
 import '../../application/ai_task_controller.dart';
 import 'ai_history_page.dart';
 import '../widgets/app_icon_cache.dart';
+import '../widgets/answer_speech_controls.dart';
+import '../widgets/answer_markdown.dart';
+import '../widgets/speech_input_button.dart';
 
 typedef GeminiReply = Future<String?> Function(
   String model,
@@ -329,6 +332,19 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
         appBar: AppBar(
           title: const Text('แชท Gemini Cloud'),
           actions: [
+            AnswerSpeechControls(
+              answer:
+                  _messages.isNotEmpty &&
+                      !_messages.last.user &&
+                      !_messages.last.error
+                  ? _messages.last.text
+                  : '',
+              generating: _busy,
+              completed:
+                  _messages.isNotEmpty &&
+                  !_messages.last.user &&
+                  !_messages.last.error,
+            ),
             if (widget.history != null)
               IconButton(
                 tooltip: 'ประวัติการทำงาน AI',
@@ -451,7 +467,9 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
                                     : colors.surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(16),
                               ),
-                              child: SelectableText(message.text),
+                              child: message.user || message.error
+                                  ? SelectableText(message.text)
+                                  : AnswerMarkdown(message.text),
                             ),
                           );
                         },
@@ -557,6 +575,10 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
                       ),
                     ),
                     const SizedBox(width: 8),
+                    SpeechInputButton(
+                      controller: _prompt,
+                      enabled: !_busy && !_pickingFile,
+                    ),
                     IconButton.filled(
                       onPressed: _busy ? null : _send,
                       tooltip: 'ส่งข้อความ',

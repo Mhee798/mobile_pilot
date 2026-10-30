@@ -16,6 +16,9 @@ import 'ai_history_page.dart';
 import 'gemini_test_page.dart';
 import '../widgets/ai_tool_progress.dart';
 import '../widgets/app_icon_cache.dart';
+import '../widgets/answer_speech_controls.dart';
+import '../widgets/answer_markdown.dart';
+import '../widgets/speech_input_button.dart';
 
 class AiTestPage extends StatefulWidget {
   const AiTestPage({
@@ -172,6 +175,11 @@ class _AiTestPageState extends State<AiTestPage> {
           appBar: AppBar(
             title: const Text('ทดสอบ AI'),
             actions: [
+              AnswerSpeechControls(
+                answer: state.answer,
+                generating: state.generating,
+                completed: state.status == 'ตอบเสร็จแล้ว',
+              ),
               IconButton(
                 tooltip: 'ทดสอบ Gemini Cloud',
                 onPressed: state.busy
@@ -410,15 +418,15 @@ class _AiTestPageState extends State<AiTestPage> {
                                           fit: BoxFit.contain,
                                         ),
                                       ),
-                                    SelectableText(
-                                      message.isUser && message.text.isEmpty
-                                          ? ''
-                                          : message.text.isEmpty
-                                          ? (state.busy
-                                                ? 'กำลังตอบ…'
-                                                : 'ไม่มีคำตอบ')
-                                          : message.text,
-                                    ),
+                                    message.isUser
+                                        ? SelectableText(message.text)
+                                        : AnswerMarkdown(
+                                            message.text.isEmpty
+                                                ? (state.busy
+                                                      ? 'กำลังตอบ…'
+                                                      : 'ไม่มีคำตอบ')
+                                                : message.text,
+                                          ),
                                     for (final app in message.apps)
                                       Padding(
                                         padding: const EdgeInsets.only(top: 8),
@@ -556,6 +564,10 @@ class _AiTestPageState extends State<AiTestPage> {
                         ),
                       ),
                       const SizedBox(width: 8),
+                      SpeechInputButton(
+                        controller: _prompt,
+                        enabled: !state.busy && state.ready && !_pickingImage,
+                      ),
                       IconButton.filled(
                         tooltip: 'ส่งข้อความ',
                         onPressed:
