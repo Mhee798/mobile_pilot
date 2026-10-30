@@ -25,6 +25,16 @@ void main() {
         .setMockMethodCallHandler(channel, null);
   });
 
+  testWidgets('production entry is separate from existing debug screens', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MobilePilotApp(useDebugUi: false));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('หน้าหลักกำลังพัฒนา'), findsOneWidget);
+    expect(find.byType(AccessibilitySetupPage), findsNothing);
+    expect(find.byType(CommandPage), findsNothing);
+  });
+
   testWidgets(
     'Disabled accessibility shows setup and can refresh into commands',
     (tester) async {

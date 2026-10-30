@@ -8,9 +8,12 @@ import 'features/ai/data/ai_task_journal.dart';
 import 'features/ai/data/ai_run_history.dart';
 
 import 'features/setup/presentation/accessibility_setup_page.dart';
+import 'features/home/presentation/mobile_pilot_home_page.dart';
 
 class MobilePilotApp extends StatelessWidget {
-  const MobilePilotApp({super.key});
+  const MobilePilotApp({super.key, this.useDebugUi = true});
+
+  final bool useDebugUi;
 
   @override
   Widget build(BuildContext context) {
@@ -26,7 +29,9 @@ class MobilePilotApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3157D5)),
           useMaterial3: true,
         ),
-        home: const AccessibilitySetupPage(),
+        home: useDebugUi
+            ? const AccessibilitySetupPage()
+            : const MobilePilotHomePage(),
       ),
     );
   }
