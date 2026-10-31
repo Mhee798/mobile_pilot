@@ -988,6 +988,19 @@ class AiDeviceTools {
         'code': 'TIMEOUT',
       };
     } on PlatformException catch (error) {
+      if (error.code == 'SERVICE_NOT_READY' ||
+          error.code == 'SERVICE_UNAVAILABLE') {
+        try {
+          if (await _platform.isAccessibilityServiceEnabled() == false) {
+            return {
+              'code': 'ACCESSIBILITY_DISABLED',
+              'error': 'MobilePilot Accessibility is disabled. Ask the user to enable it in Android settings before using this tool.',
+            };
+          }
+        } catch (_) {
+          // Preserve the original service error when status cannot be checked.
+        }
+      }
       if (name == 'open_app' && error.code == 'TARGET_NOT_READY') {
         return {
           'status': 'unconfirmed',

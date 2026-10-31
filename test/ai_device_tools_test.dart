@@ -5,6 +5,23 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_pilot/features/ai/data/ai_device_tools.dart';
 
 void main() {
+  test(
+    'disabled Accessibility is reported only after service failure',
+    () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      const settings = MethodChannel('com.mobilepilot/settings');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(settings, (call) async {
+            if (call.method == 'isAccessibilityServiceEnabled') return false;
+            throw PlatformException(code: 'SERVICE_UNAVAILABLE');
+          });
+      final result = await AiDeviceTools(targetPackage: 'example.target')
+          .execute('read_current_ui', {});
+      expect(result['code'], 'ACCESSIBILITY_DISABLED');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(settings, null);
+    },
+  );
   test('saved-screen tool is offered only when a saved screen exists', () {
     expect(
       AiDeviceTools().modelDefinitions.any(

@@ -25,6 +25,7 @@ class MobilePilotApp extends StatelessWidget {
       ),
       child: MaterialApp(
         title: 'MobilePilot',
+        debugShowCheckedModeBanner: useDebugUi,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3157D5)),
           useMaterial3: true,

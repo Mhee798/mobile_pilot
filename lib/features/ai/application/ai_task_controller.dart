@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
@@ -9,6 +10,7 @@ import '../data/ai_model_service.dart';
 import '../data/ai_task_journal.dart';
 import '../../../core/platform/ai_task_overlay.dart';
 import 'ai_task_state.dart';
+import 'ai_task_phase.dart';
 export 'ai_task_state.dart';
 
 /// App-owned AI session. Routes subscribe without owning the model lifetime.
@@ -38,6 +40,7 @@ class AiTaskController extends Cubit<AiTaskState> {
     _restoreInterrupted();
   }
   final AiModelService service;
+  final ValueNotifier<AiTaskPhase> taskPhase = ValueNotifier(AiTaskPhase.idle);
   final AiTaskJournal? _journal;
   Future<void> _restoreInterrupted() async {
     try {
@@ -74,6 +77,10 @@ class AiTaskController extends Cubit<AiTaskState> {
     if (_externalOverlay) {
       unawaited(_overlay?.publish(status: status, running: true));
     }
+  }
+
+  void setExternalPhase(AiTaskPhase phase) {
+    if (_externalOverlay) taskPhase.value = phase;
   }
 
   void endExternalTask(String status) {
@@ -321,6 +328,7 @@ class AiTaskController extends Cubit<AiTaskState> {
     Uint8List? image,
     bool showUserMessage = true,
   }) async {
+    taskPhase.value = AiTaskPhase.thinking;
     service.deviceTools.clearPendingChoice();
     _update(
       state.copyWith(
@@ -364,35 +372,47 @@ class AiTaskController extends Cubit<AiTaskState> {
           );
         },
         image: image,
-        onToolCall: (name) => _update(
-          state.copyWith(
-            status:
-                {
-                  'read_current_ui',
-                  'wait_for_ui',
-                  'ui_action',
-                  'keyboard_action',
-                  'screen_action',
-                  'capture_screen',
-                  'scroll_until_ui',
-                }.contains(name)
-                ? 'กำลังรอหน้าจอแอปเป้าหมาย กดเปิดแอปเป้าหมายได้'
-                : 'กำลังใช้เครื่องมือ: $name',
-            waitingForUi:
-                {
-                  'read_current_ui',
-                  'wait_for_ui',
-                  'ui_action',
-                  'keyboard_action',
-                  'screen_action',
-                  'capture_screen',
-                  'scroll_until_ui',
-                }.contains(name) &&
-                service.deviceTools.targetPackage != null,
-            toolsUsed: [...state.toolsUsed, name],
-          ),
-        ),
-        onToolResult: (name, result) => _handleToolResult(text, name, result),
+        onToolCall: (name) {
+          if (!state.stoppingGeneration) {
+            taskPhase.value = AiTaskPhase.usingTool;
+          }
+          _update(
+            state.copyWith(
+              status:
+                  {
+                    'read_current_ui',
+                    'wait_for_ui',
+                    'ui_action',
+                    'keyboard_action',
+                    'screen_action',
+                    'capture_screen',
+                    'scroll_until_ui',
+                  }.contains(name)
+                  ? 'กำลังรอหน้าจอแอปเป้าหมาย กดเปิดแอปเป้าหมายได้'
+                  : 'กำลังใช้เครื่องมือ: $name',
+              waitingForUi:
+                  {
+                    'read_current_ui',
+                    'wait_for_ui',
+                    'ui_action',
+                    'keyboard_action',
+                    'screen_action',
+                    'capture_screen',
+                    'scroll_until_ui',
+                  }.contains(name) &&
+                  service.deviceTools.targetPackage != null,
+              toolsUsed: [...state.toolsUsed, name],
+            ),
+          );
+        },
+        onToolResult: (name, result) {
+          _handleToolResult(text, name, result);
+          if (!state.stoppingGeneration) {
+            taskPhase.value = result['status'] == 'ambiguous'
+                ? AiTaskPhase.waitingForUser
+                : AiTaskPhase.thinking;
+          }
+        },
       );
       _update(
         state.copyWith(
@@ -401,7 +421,15 @@ class AiTaskController extends Cubit<AiTaskState> {
               : 'ตอบเสร็จแล้ว',
         ),
       );
+      taskPhase.value = state.pendingChoiceIndex != null
+          ? AiTaskPhase.waitingForUser
+          : state.answer.isEmpty
+          ? AiTaskPhase.failed
+          : AiTaskPhase.responded;
     } catch (error) {
+      taskPhase.value = state.stoppingGeneration
+          ? AiTaskPhase.stopped
+          : AiTaskPhase.failed;
       final message = state.stoppingGeneration
           ? 'หยุดการสร้างคำตอบแล้ว บทสนทนาของโมเดลถูกเริ่มใหม่'
           : 'สร้างคำตอบไม่สำเร็จ บทสนทนาถูกเริ่มใหม่: $error';
@@ -423,6 +451,7 @@ class AiTaskController extends Cubit<AiTaskState> {
         ),
       );
     } finally {
+      if (state.stoppingGeneration) taskPhase.value = AiTaskPhase.stopped;
       try {
         await _journal?.save(
           text,
@@ -447,6 +476,9 @@ class AiTaskController extends Cubit<AiTaskState> {
     String name,
     Map<String, dynamic> result,
   ) {
+    if (result['code'] == 'ACCESSIBILITY_DISABLED') {
+      _update(state.copyWith(accessibilityNeeded: true));
+    }
     if (name == 'verify_goal' && result['conditions'] is List) {
       final checks = (result['conditions'] as List).whereType<Map>().map(
         (c) =>
@@ -525,8 +557,16 @@ class AiTaskController extends Cubit<AiTaskState> {
     );
   }
 
+  void updateAccessibility(bool? enabled) {
+    if (enabled == true && state.accessibilityNeeded) {
+      _update(state.copyWith(accessibilityNeeded: false));
+    }
+  }
+
   Future<void> stopGeneration() async {
     if (!state.generating || state.stoppingGeneration) return;
+    final previousPhase = taskPhase.value;
+    taskPhase.value = AiTaskPhase.stopping;
     _update(
       state.copyWith(
         stoppingGeneration: true,
@@ -536,6 +576,9 @@ class AiTaskController extends Cubit<AiTaskState> {
     try {
       await service.stopGeneration();
     } catch (error) {
+      if (taskPhase.value == AiTaskPhase.stopping) {
+        taskPhase.value = previousPhase;
+      }
       _update(
         state.copyWith(
           stoppingGeneration: false,
@@ -698,6 +741,7 @@ class AiTaskController extends Cubit<AiTaskState> {
     await _operation;
     await service.close();
     await _overlay?.publish(status: 'ตัวควบคุม AI ปิดแล้ว', running: false);
+    taskPhase.dispose();
     return super.close();
   }
 }

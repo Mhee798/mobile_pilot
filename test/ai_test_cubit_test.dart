@@ -6,6 +6,7 @@ import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:mobile_pilot/features/ai/data/ai_model_service.dart';
+import 'package:mobile_pilot/features/ai/application/ai_task_phase.dart';
 import 'package:mobile_pilot/core/platform/ai_task_overlay.dart';
 import 'package:mobile_pilot/features/ai/presentation/cubit/ai_test_cubit.dart';
 import 'package:mobile_pilot/features/ai/data/ai_device_tools.dart';
@@ -55,6 +56,7 @@ class FakeAiService extends AiModelService {
   bool returnApps = false;
   bool returnChoices = false;
   bool failGeneration = false;
+  bool emptyGeneration = false;
   bool nanoClosesModel = false;
   final prompts = <String>[];
   Map<String, dynamic>? reportedToolResult;
@@ -86,6 +88,7 @@ class FakeAiService extends AiModelService {
     prompts.add(text);
     receivedImage = image;
     if (failGeneration) throw StateError('test generation failure');
+    if (emptyGeneration) return;
     if (reportedToolResult != null) {
       onToolCall?.call('open_app');
       onToolResult?.call('open_app', reportedToolResult!);
@@ -135,6 +138,33 @@ class FakeAiService extends AiModelService {
 }
 
 void main() {
+  test('empty model reply does not report responded phase', () async {
+    final service = FakeAiService()..emptyGeneration = true;
+    final controller = AiTestCubit(service);
+    await controller.loadSaved();
+    await controller.send('ทดสอบ');
+    expect(controller.taskPhase.value, AiTaskPhase.failed);
+    await controller.close();
+  });
+  test(
+    'accessibility prompt clears only after permission is enabled',
+    () async {
+      final service = FakeAiService()
+        ..reportedToolResult = {
+          'code': 'ACCESSIBILITY_DISABLED',
+          'error': 'disabled',
+        };
+      final controller = AiTestCubit(service);
+      await controller.loadSaved();
+      await controller.send('ทดสอบ');
+      expect(controller.state.accessibilityNeeded, isTrue);
+      controller.updateAccessibility(null);
+      expect(controller.state.accessibilityNeeded, isTrue);
+      controller.updateAccessibility(true);
+      expect(controller.state.accessibilityNeeded, isFalse);
+      await controller.close();
+    },
+  );
   test(
     'failed Nano switch keeps chat only when the old model remains ready',
     () async {

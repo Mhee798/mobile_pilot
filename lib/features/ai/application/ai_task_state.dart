@@ -24,6 +24,7 @@ class AiTaskState {
     this.openingReadTarget = false,
     this.generating = false,
     this.stoppingGeneration = false,
+    this.accessibilityNeeded = false,
     this.saved = false,
     this.canCancel = false,
     this.status = 'ยังไม่ได้โหลดโมเดล',
@@ -44,6 +45,7 @@ class AiTaskState {
       openingReadTarget,
       generating,
       stoppingGeneration;
+  final bool accessibilityNeeded;
   final String status, answer;
   final List<AiChatMessage> messages;
   final List<String> toolsUsed;
@@ -60,6 +62,7 @@ class AiTaskState {
     bool? openingReadTarget,
     bool? generating,
     bool? stoppingGeneration,
+    bool? accessibilityNeeded,
     bool? saved,
     bool? canCancel,
     String? status,
@@ -81,6 +84,7 @@ class AiTaskState {
     openingReadTarget: openingReadTarget ?? this.openingReadTarget,
     generating: generating ?? this.generating,
     stoppingGeneration: stoppingGeneration ?? this.stoppingGeneration,
+    accessibilityNeeded: accessibilityNeeded ?? this.accessibilityNeeded,
     saved: saved ?? this.saved,
     canCancel: canCancel ?? this.canCancel,
     status: status ?? this.status,

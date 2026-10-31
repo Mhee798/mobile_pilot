@@ -19,6 +19,7 @@ import '../widgets/app_icon_cache.dart';
 import '../widgets/answer_speech_controls.dart';
 import '../widgets/answer_markdown.dart';
 import '../widgets/speech_input_button.dart';
+import '../widgets/accessibility_required_action.dart';
 
 class AiTestPage extends StatefulWidget {
   const AiTestPage({
@@ -265,6 +266,10 @@ class _AiTestPageState extends State<AiTestPage> {
                         child: const Text('รับทราบ'),
                       ),
                     ),
+                  ),
+                if (state.accessibilityNeeded)
+                  AccessibilityRequiredAction(
+                    onStatus: _cubit.updateAccessibility,
                   ),
                 if (state.toolsUsed.isNotEmpty || state.toolResults.isNotEmpty)
                   AiToolProgress(

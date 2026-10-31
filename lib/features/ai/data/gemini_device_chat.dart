@@ -78,6 +78,8 @@ class GeminiDeviceChat {
     required String model,
     required List<Content> history,
     required void Function(String) progress,
+    void Function()? onInference,
+    void Function(String)? onToolStart,
     void Function(String, String)? onOutcome,
     bool allowImages = false,
     Future<String?> Function(List<Map<String, String>>)? chooseApp,
@@ -110,6 +112,7 @@ class GeminiDeviceChat {
     for (var round = 0; round < 12; round++) {
       if (_cancelled) throw StateError('ยกเลิกแล้ว');
       progress('Gemini กำลังคิด');
+      onInference?.call();
       final result =
           await (generate?.call(List.of(turns)) ??
                   generativeModel!.generateContent(turns))
@@ -132,6 +135,7 @@ class GeminiDeviceChat {
       for (final call in calls) {
         if (_cancelled) throw StateError('ยกเลิกแล้ว');
         progress('กำลังใช้เครื่องมือ: ${call.name}');
+        onToolStart?.call(call.name);
         final args = Map<String, dynamic>.from(call.args);
         final step = onStepStart?.call(call.name, args);
         final timer = Stopwatch()..start();
@@ -172,6 +176,7 @@ class GeminiDeviceChat {
             throw StateError('ยกเลิกการเลือกแอป');
           }
           progress('กำลังเปิดแอปที่เลือก');
+          onToolStart?.call('open_selected_app');
           final choiceStep = onStepStart?.call('open_selected_app', {
             'packageName': selected,
           });

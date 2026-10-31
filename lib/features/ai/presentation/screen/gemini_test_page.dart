@@ -1,29 +1,22 @@
-import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data' show BytesBuilder;
+import 'dart:typed_data' show BytesBuilder, Uint8List;
 
-import 'package:firebase_ai/firebase_ai.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 
-import '../../../../firebase_options.dart';
 import '../../data/ai_run_history.dart';
 import '../../data/ai_device_tools.dart';
 import '../../data/gemini_device_chat.dart';
+import '../../data/conversation_store.dart';
 import '../../application/ai_task_controller.dart';
+import '../../application/gemini_chat_controller.dart';
+export '../../application/gemini_chat_controller.dart' show GeminiReply;
 import 'ai_history_page.dart';
 import '../widgets/app_icon_cache.dart';
 import '../widgets/answer_speech_controls.dart';
 import '../widgets/answer_markdown.dart';
 import '../widgets/speech_input_button.dart';
-
-typedef GeminiReply = Future<String?> Function(
-  String model,
-  List<Content> history,
-);
+import '../widgets/accessibility_required_action.dart';
 
 /// Cloud chat with opt-in device tools.
 class GeminiTestPage extends StatefulWidget {
@@ -46,53 +39,107 @@ class GeminiTestPage extends StatefulWidget {
   State<GeminiTestPage> createState() => _GeminiTestPageState();
 }
 
-class _Message {
-  const _Message(this.text, {required this.user, this.error = false});
-  final String text;
-  final bool user;
-  final bool error;
-}
-
 class _GeminiTestPageState extends State<GeminiTestPage> {
   final _prompt = TextEditingController();
   final _scroll = ScrollController();
-  final _messages = <_Message>[];
-  final _history = <Content>[];
-  late final _deviceChat = GeminiDeviceChat(
-    deviceTools: AiDeviceTools(
-      snapshot: widget.uiSnapshot,
-      targetPackage: widget.targetPackage,
-    ),
-  );
-  bool _busy = false;
-  bool _toolsEnabled = false;
-  bool _allowImages = false;
-  bool _stopRequested = false;
+  final _icons = AppIconCache();
+  late final GeminiChatController _chat;
   bool _pickingFile = false;
   String? _selectedFileName;
-  String _progress = '';
-  Completer<String?>? _choice;
-  List<Map<String, String>> _apps = [];
-  final _icons = AppIconCache();
-  String _model = 'gemini-3.5-flash-lite';
+
+  List<GeminiMessage> get _messages => _chat.messages;
+  bool get _busy => _chat.busy;
+  bool get _toolsEnabled => _chat.toolsEnabled;
+  bool get _allowImages => _chat.allowImages;
+  bool get _stopRequested => _chat.stopRequested;
+  String get _progress => _chat.progress;
+  List<Map<String, String>> get _apps => _chat.apps;
+  String get _model => _chat.model;
+
+  @override
+  void initState() {
+    super.initState();
+    _chat = GeminiChatController(
+      reply: widget.reply,
+      history: widget.history,
+      taskController: widget.controller,
+      deviceChat: GeminiDeviceChat(
+        deviceTools: AiDeviceTools(
+          snapshot: widget.uiSnapshot,
+          targetPackage: widget.targetPackage,
+        ),
+      ),
+    )..addListener(_onChatChanged);
+    _openConversationStore();
+  }
+
+  Future<void> _openConversationStore() async {
+    try {
+      final store = await ConversationStore.open();
+      if (mounted) _chat.attachStore(store);
+    } catch (_) {
+      if (mounted) _chat.reportStoreUnavailable();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('เปิดที่เก็บแชทไม่สำเร็จ แชทรอบนี้อาจไม่ถูกบันทึก'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _showConversations() async {
+    final records = _chat.savedConversations;
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: records.isEmpty
+            ? const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('ยังไม่มีแชทที่บันทึกไว้'),
+              )
+            : ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final record in records)
+                    ListTile(
+                      title: Text(
+                        '${record['title'] ?? 'แชท'}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text('${record['model'] ?? ''}'),
+                      onTap: () =>
+                          Navigator.pop(context, record['id'] as String),
+                    ),
+                ],
+              ),
+      ),
+    );
+    if (selected != null && mounted) {
+      setState(() => _selectedFileName = null);
+      _chat.openConversation(selected);
+    }
+  }
+
+  void _onChatChanged() {
+    if (mounted) {
+      final nearBottom =
+          !_scroll.hasClients ||
+          _scroll.position.maxScrollExtent - _scroll.position.pixels < 100;
+      setState(() {});
+      if (nearBottom) _scrollToBottom();
+    }
+  }
 
   @override
   void dispose() {
-    if (_busy) {
-      _stopRequested = true;
-      _resolveChoice(null);
-      _deviceChat.cancel();
-    }
+    _chat.removeListener(_onChatChanged);
+    _chat.dispose();
     _prompt.dispose();
     _scroll.dispose();
     super.dispose();
-  }
-
-  void _resolveChoice(String? packageName) {
-    final choice = _choice;
-    _choice = null;
-    if (choice != null && !choice.isCompleted) choice.complete(packageName);
-    _apps = [];
   }
 
   Future<void> _selectFile() async {
@@ -118,9 +165,7 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
       if (!mounted) return;
       setState(() {
         _selectedFileName = file.name;
-        _deviceChat.selectTextFile(file.name, text);
-        _history.clear();
-        _messages.clear();
+        _chat.selectTextFile(file.name, text);
       });
     } catch (error) {
       if (mounted) {
@@ -130,19 +175,6 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
     } finally {
       if (mounted) setState(() => _pickingFile = false);
     }
-  }
-
-  Future<String?> _chooseApp(List<Map<String, String>> apps) {
-    if (!mounted || _stopRequested || apps.isEmpty) return Future.value(null);
-    final choice = Completer<String?>();
-    setState(() {
-      _choice = choice;
-      _apps = apps;
-      _progress = 'เลือกแอปเพื่อทำงานต่อ';
-    });
-    widget.controller?.updateExternalTask('รอเลือกแอป');
-    _scrollToBottom();
-    return choice.future;
   }
 
   void _scrollToBottom() {
@@ -157,170 +189,16 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
     });
   }
 
-  Future<String?> _cloudReply(String model, List<Content> history) async {
-    await _initializeFirebase();
-    final response = await FirebaseAI.googleAI()
-        .generativeModel(model: model)
-        .generateContent(history);
-    return response.text;
-  }
-
-  Future<void> _initializeFirebase() async {
-    if (Firebase.apps.isEmpty) {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-    }
-    await FirebaseAppCheck.instance.activate(
-      providerAndroid: kDebugMode
-          ? const AndroidDebugProvider()
-          : const AndroidPlayIntegrityProvider(),
-    );
-  }
-
   Future<void> _send() async {
     final text = _prompt.text.trim();
     if (text.isEmpty || _busy || _pickingFile) return;
-    final controller = widget.controller;
-    if (controller != null && !controller.beginExternalTask(_stop)) {
+    if (!_chat.send(text)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('มีงาน AI อื่นกำลังทำงานอยู่')),
       );
       return;
     }
     _prompt.clear();
-    setState(() {
-      _busy = true;
-      _stopRequested = false;
-      _progress = 'Gemini กำลังตอบ...';
-      _messages.add(_Message(text, user: true));
-    });
-    _scrollToBottom();
-    controller?.updateExternalTask('Gemini กำลังตอบ');
-    final userContent = Content.text(text);
-    final timer = Stopwatch()..start();
-    String? runId;
-    var runState = 'responded';
-    var runReason = '';
-    var runAnswer = '';
-    try {
-      runId = await widget.history?.start(
-        text,
-        'Gemini Cloud · $_model',
-        tools: _toolsEnabled,
-        image: false,
-      );
-      if (_stopRequested) throw StateError('ยกเลิกแล้ว');
-      String? result;
-      List<Content>? toolHistory;
-      if (_toolsEnabled && widget.reply == null) {
-        await _initializeFirebase();
-        if (_stopRequested) throw StateError('ยกเลิกแล้ว');
-        final output = await _deviceChat.run(
-          model: _model,
-          history: [..._history, userContent],
-          allowImages: _allowImages,
-          progress: (value) {
-            controller?.updateExternalTask(value);
-            if (mounted) setState(() => _progress = value);
-          },
-          onOutcome: (state, reason) {
-            runState = state;
-            runReason = reason;
-          },
-          chooseApp: _chooseApp,
-          onStepStart: (name, args) => runId == null
-              ? null
-              : widget.history?.beginStep(runId, name, args),
-          onStepEnd: (step, result, elapsed) async {
-            if (runId != null) {
-              await widget.history?.endStep(runId, step, result, elapsed);
-            }
-          },
-        );
-        result = output.$1;
-        toolHistory = output.$2;
-      } else {
-        result = await (widget.reply ?? _cloudReply)(_model, [
-          ..._history,
-          userContent,
-        ]).timeout(const Duration(seconds: 60));
-      }
-      if (_stopRequested) throw StateError('ยกเลิกแล้ว');
-      final answer = result?.trim();
-      runAnswer = answer ?? '';
-      if (!mounted) return;
-      if (answer == null || answer.isEmpty) {
-        setState(
-          () => _messages.add(
-            const _Message(
-              'โมเดลไม่ได้ส่งข้อความตอบ ลองส่งใหม่อีกครั้ง',
-              user: false,
-              error: true,
-            ),
-          ),
-        );
-      } else {
-        if (toolHistory != null && toolHistory.length > _history.length) {
-          _history
-            ..clear()
-            ..addAll(toolHistory);
-        } else {
-          _history.addAll([
-            userContent,
-            Content.model([TextPart(answer)]),
-          ]);
-        }
-        setState(() => _messages.add(_Message(answer, user: false)));
-      }
-    } catch (error) {
-      runState = _stopRequested ? 'cancelled' : 'failed';
-      runReason = '$error';
-      if (mounted) {
-        setState(
-          () => _messages.add(
-            _Message('ส่งข้อความไม่สำเร็จ: $error', user: false, error: true),
-          ),
-        );
-      }
-    } finally {
-      if (runId != null) {
-        await widget.history?.finish(
-          runId,
-          runState,
-          runReason,
-          runAnswer,
-          timer.elapsedMilliseconds,
-        );
-      }
-      controller?.endExternalTask(
-        _stopRequested
-            ? 'หยุดงาน Gemini แล้ว'
-            : runState == 'failed'
-            ? 'งาน Gemini ไม่สำเร็จ'
-            : 'Gemini ตอบแล้ว',
-      );
-      if (mounted) {
-        setState(() => _busy = false);
-        _scrollToBottom();
-      }
-    }
-  }
-
-  Future<void> _stop() async {
-    if (!_busy || _stopRequested) return;
-    _stopRequested = true;
-    _resolveChoice(null);
-    if (_toolsEnabled) _deviceChat.cancel();
-    widget.controller?.updateExternalTask('กำลังหยุด Gemini');
-    if (mounted) setState(() => _progress = 'กำลังหยุด...');
-  }
-
-  void _reset() {
-    setState(() {
-      _history.clear();
-      _messages.clear();
-    });
   }
 
   @override
@@ -332,6 +210,13 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
         appBar: AppBar(
           title: const Text('แชท Gemini Cloud'),
           actions: [
+            IconButton(
+              tooltip: 'แชทที่บันทึกไว้',
+              onPressed: _busy || _chat.store == null
+                  ? null
+                  : _showConversations,
+              icon: const Icon(Icons.forum_outlined),
+            ),
             AnswerSpeechControls(
               answer:
                   _messages.isNotEmpty &&
@@ -357,7 +242,7 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
               ),
             IconButton(
               tooltip: 'เริ่มแชทใหม่',
-              onPressed: _busy ? null : _reset,
+              onPressed: _busy ? null : _chat.reset,
               icon: const Icon(Icons.add_comment_outlined),
             ),
           ],
@@ -365,6 +250,11 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
         body: SafeArea(
           child: Column(
             children: [
+              if (_chat.storageError != null) Text(_chat.storageError!),
+              if (_chat.accessibilityNeeded)
+                AccessibilityRequiredAction(
+                  onStatus: _chat.updateAccessibility,
+                ),
               if (MediaQuery.viewInsetsOf(context).bottom == 0)
                 ConstrainedBox(
                   constraints: BoxConstraints(
@@ -398,11 +288,7 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
                                     if (value == null || value == _model) {
                                       return;
                                     }
-                                    setState(() {
-                                      _model = value;
-                                      _history.clear();
-                                      _messages.clear();
-                                    });
+                                    _chat.setModel(value);
                                   },
                           ),
                           SwitchListTile(
@@ -412,14 +298,7 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
                               'ข้อมูลหน้าจอที่อ่านจะส่งไปยัง Google',
                             ),
                             value: _toolsEnabled,
-                            onChanged: _busy
-                                ? null
-                                : (value) => setState(() {
-                                    _toolsEnabled = value;
-                                    if (!value) _allowImages = false;
-                                    _history.clear();
-                                    _messages.clear();
-                                  }),
+                            onChanged: _busy ? null : _chat.setToolsEnabled,
                           ),
                           if (_toolsEnabled)
                             SwitchListTile(
@@ -429,13 +308,7 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
                                 'ภาพอาจมีข้อมูลส่วนตัว และจะถูกส่งไปยัง Google',
                               ),
                               value: _allowImages,
-                              onChanged: _busy
-                                  ? null
-                                  : (value) => setState(() {
-                                      _allowImages = value;
-                                      _history.clear();
-                                      _messages.clear();
-                                    }),
+                              onChanged: _busy ? null : _chat.setAllowImages,
                             ),
                         ],
                       ),
@@ -482,7 +355,7 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
                     children: [
                       Expanded(child: Text(_progress)),
                       TextButton(
-                        onPressed: _stopRequested ? null : _stop,
+                        onPressed: _stopRequested ? null : _chat.stop,
                         child: const Text('หยุด'),
                       ),
                     ],
@@ -515,12 +388,10 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
                           ),
                           title: Text(app['label']!),
                           subtitle: Text(app['packageName']!),
-                          onTap: () => setState(
-                            () => _resolveChoice(app['packageName']),
-                          ),
+                          onTap: () => _chat.resolveChoice(app['packageName']),
                         ),
                       TextButton(
-                        onPressed: () => setState(() => _resolveChoice(null)),
+                        onPressed: () => _chat.resolveChoice(null),
                         child: const Text('ยกเลิกการเลือกแอป'),
                       ),
                     ],
@@ -543,10 +414,8 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
                     onPressed: _busy
                         ? null
                         : () => setState(() {
-                            _deviceChat.selectTextFile(null, null);
+                            _chat.selectTextFile(null, null);
                             _selectedFileName = null;
-                            _history.clear();
-                            _messages.clear();
                           }),
                   ),
                 ),
