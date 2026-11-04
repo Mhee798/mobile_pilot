@@ -4,6 +4,22 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_pilot/features/ai/data/model_download.dart';
 
 void main() {
+  test('model download links require HTTPS and a direct model path', () {
+    expect(
+      parseModelDownloadUri(' https://example.com/model.litertlm?token=value ')
+          ?.host,
+      'example.com',
+    );
+    for (final value in [
+      'http://example.com/model.litertlm',
+      'https://example.com/model.gguf',
+      'not a URL',
+      'https:///model.litertlm',
+    ]) {
+      expect(parseModelDownloadUri(value), isNull);
+    }
+  });
+
   test('downloads bytes and reports real size', () async {
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     final directory = await Directory.systemTemp.createTemp('model-download-');

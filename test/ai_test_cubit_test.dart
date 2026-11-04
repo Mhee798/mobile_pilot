@@ -1,3 +1,5 @@
+import 'helpers/localized_test_app.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -208,7 +210,9 @@ void main() {
     tester,
   ) async {
     final service = FakeAiService();
-    await tester.pumpWidget(MaterialApp(home: AiTestPage(service: service)));
+    await tester.pumpWidget(
+      LocalizedTestApp(home: AiTestPage(service: service)),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('จัดการโมเดล'));
     await tester.pumpAndSettle();
@@ -222,7 +226,9 @@ void main() {
     tester,
   ) async {
     final service = FakeAiService();
-    await tester.pumpWidget(MaterialApp(home: AiTestPage(service: service)));
+    await tester.pumpWidget(
+      LocalizedTestApp(home: AiTestPage(service: service)),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('จัดการโมเดล'));
     await tester.pumpAndSettle();
@@ -248,7 +254,9 @@ void main() {
     tester,
   ) async {
     final service = FakeAiService();
-    await tester.pumpWidget(MaterialApp(home: AiTestPage(service: service)));
+    await tester.pumpWidget(
+      LocalizedTestApp(home: AiTestPage(service: service)),
+    );
     await tester.pumpAndSettle();
     final reply = Completer<void>();
     // ignore: deprecated_member_use
@@ -447,12 +455,12 @@ void main() {
     await tester.pumpWidget(
       BlocProvider<AiTestCubit>.value(
         value: controller,
-        child: const MaterialApp(home: AiTestPage()),
+        child: const LocalizedTestApp(home: AiTestPage()),
       ),
     );
     await tester.pump();
     expect(controller.state.busy, isTrue);
-    await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+    await tester.pumpWidget(const LocalizedTestApp(home: SizedBox()));
     expect(controller.isClosed, isFalse);
     expect(controller.state.busy, isTrue);
     service.readGate!.complete();
@@ -460,7 +468,7 @@ void main() {
     await tester.pumpWidget(
       BlocProvider<AiTestCubit>.value(
         value: controller,
-        child: const MaterialApp(home: AiTestPage()),
+        child: const LocalizedTestApp(home: AiTestPage()),
       ),
     );
     await tester.pumpAndSettle();
@@ -644,7 +652,7 @@ void main() {
       await tester.pumpWidget(
         BlocProvider<AiTestCubit>.value(
           value: cubit,
-          child: const MaterialApp(home: AiTestPage()),
+          child: const LocalizedTestApp(home: AiTestPage()),
         ),
       );
       await tester.pumpAndSettle();
@@ -664,7 +672,9 @@ void main() {
   ) async {
     final tools = FakeDeviceTools();
     final service = FakeAiService(deviceTools: tools)..returnApps = true;
-    await tester.pumpWidget(MaterialApp(home: AiTestPage(service: service)));
+    await tester.pumpWidget(
+      LocalizedTestApp(home: AiTestPage(service: service)),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('จัดการโมเดล'));
     await tester.pumpAndSettle();

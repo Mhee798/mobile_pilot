@@ -33,6 +33,9 @@ class AiModelService {
   int? get loadedContextTokens => _loadedContextTokens;
   static Future<void>? _initialization;
   InferenceModel? _model;
+  InferenceModelSpec? _librarySpec;
+  int _modelRevision = 0;
+  int get modelRevision => _modelRevision;
   InferenceChat? _chat;
   ModelDownload? _download;
   bool visionEnabled = true;
@@ -41,6 +44,9 @@ class AiModelService {
   String? _choiceResult;
   bool _generationCancelled = false;
   String? _resumeSummary;
+
+  String? get loadedModelLabel => isReady ? _loadedModelLabel : null;
+  bool get usingNano => _usingNano;
 
   bool get isReady => _model != null;
   bool get supportsImages => isReady && _loadedVision;
@@ -62,12 +68,28 @@ class AiModelService {
     return FlutterEdgeAi.hasActiveModel();
   }
 
+  String? get loadedFileName =>
+      isReady ? _librarySpec?.files.first.filename : null;
+
+  Future<void> forgetModelFile(String path) async {
+    await initialize();
+    final filename = File(path).uri.pathSegments.last;
+    if (await FlutterEdgeAi.isModelInstalled(filename)) {
+      // fromFile registrations are removed without deleting the app-owned file.
+      await FlutterEdgeAi.uninstallModel(filename);
+    } else if (FlutterEdgeAi.activeModelSpec?.files.any((file) => file.filename == filename) == true) {
+      await FlutterEdgeAi.clearActiveInferenceIdentity();
+    }
+  }
+
   void cancelDownload() => _download?.cancel();
 
   Future<void> _closeModel() async {
     await resetChat();
     final model = _model;
+    if (model != null) _modelRevision++;
     _model = null;
+    _librarySpec = null;
     _loadedVision = false;
     _usingNano = false;
     await model?.close();
@@ -96,10 +118,86 @@ class AiModelService {
         supportImage: visionEnabled,
       ),
     );
+    _modelRevision++;
     _usingNano = true;
     _loadedVision = visionEnabled;
     _loadedContextTokens = contextTokens;
     _loadedModelLabel = 'Gemini Nano (Android AICore)';
+  }
+
+  Future<void> activateFileModel(
+    String path,
+    ModelType type,
+    String label,
+    bool vision,
+  ) => _replaceLibraryModel(() async {
+    await initialize();
+    if (!path.toLowerCase().endsWith('.litertlm') ||
+        !await File(path).exists() ||
+        await File(path).length() == 0) {
+      throw const FormatException('Invalid or missing .litertlm file');
+    }
+    final installation = await FlutterEdgeAi.installModel(
+      modelType: type,
+      fileType: ModelFileType.litertlm,
+    ).fromFile(path).install(activate: false);
+    await _closeModel();
+    _model = await FlutterEdgeAi.openModel(
+      installation.spec,
+      maxTokens: contextTokens,
+      supportImage: vision,
+    );
+    _modelRevision++;
+    _librarySpec = installation.spec;
+    _loadedVision = vision;
+    _loadedContextTokens = contextTokens;
+    _loadedModelLabel = label;
+    // Commit the SDK's saved identity only after the runtime opens successfully.
+    await FlutterEdgeAi.installModel(
+      modelType: type,
+      fileType: ModelFileType.litertlm,
+    ).fromFile(path).install();
+  });
+
+  Future<void> activateNanoModel(void Function(int) progress) =>
+      _replaceLibraryModel(() => loadGeminiNano(progress));
+
+  Future<void> _replaceLibraryModel(Future<void> Function() replace) async {
+    final previous = _model;
+    final previousSpec =
+        _librarySpec ??
+        (isReady && !_usingNano ? FlutterEdgeAi.activeModelSpec : null);
+    final previousNano = _usingNano;
+    final previousLabel = _loadedModelLabel;
+    final previousVision = _loadedVision;
+    final previousTokens = _loadedContextTokens;
+    try {
+      await replace();
+    } catch (error) {
+      if (!identical(_model, previous)) {
+        try {
+          await _closeModel();
+          if (previous != null && previousNano) {
+            await loadGeminiNano((_) {});
+          } else if (previous != null && previousSpec != null) {
+            _model = await FlutterEdgeAi.openModel(
+              previousSpec,
+              maxTokens: previousTokens ?? contextTokens,
+              supportImage: previousVision,
+            );
+            _librarySpec = previousSpec;
+            _loadedVision = previousVision;
+            _loadedContextTokens = previousTokens;
+            _loadedModelLabel = previousLabel;
+          }
+        } catch (restoreError) {
+          throw StateError(
+            'Model switch failed: $error. Restore also failed: $restoreError',
+          );
+        }
+      }
+      rethrow;
+    }
   }
 
   Future<void> loadSaved() async {
@@ -586,9 +684,11 @@ class AiModelService {
       maxTokens: contextTokens,
       supportImage: visionEnabled,
     );
+    _modelRevision++;
     _loadedVision = visionEnabled;
     _loadedContextTokens = contextTokens;
     final spec = FlutterEdgeAi.activeModelSpec;
+    _librarySpec = spec;
     _loadedModelLabel = spec == null
         ? 'ไม่ทราบโมเดล'
         : '${spec.modelType.name} · ${spec.files.first.filename}';

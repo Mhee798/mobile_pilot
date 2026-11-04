@@ -1,3 +1,5 @@
+import '../../../../core/ai/model_catalog.dart';
+
 import 'package:flutter/services.dart';
 
 import 'dart:typed_data';
@@ -38,9 +40,10 @@ class AiTestPage extends StatefulWidget {
 }
 
 class _AiTestPageState extends State<AiTestPage> {
-  static const _models = {
-    'Gemma 4 E2B · Vision (ประมาณ 2.6 GB)': 'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm',
-    'Gemma 4 E4B · Vision (ประมาณ 3.7 GB)': 'https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm/resolve/main/gemma-4-E4B-it.litertlm',
+  static final _models = {
+    for (final model in downloadableModels)
+      '${model.name} · ${model.vision ? 'Vision' : 'Text'} (ประมาณ ${formatDownloadSize(model.estimatedBytes)})':
+          model.url,
     'ระบุลิงก์เอง': '',
   };
   final _prompt = TextEditingController();

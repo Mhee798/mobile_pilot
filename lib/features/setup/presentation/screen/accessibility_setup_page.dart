@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../core/platform/mobile_pilot_platform.dart';
-import '../../device/presentation/command_page.dart';
+import '../../../../core/platform/mobile_pilot_platform.dart';
+import '../../../device/presentation/screen/command_page.dart';
 
 class AccessibilitySetupPage extends StatefulWidget {
   const AccessibilitySetupPage({super.key});

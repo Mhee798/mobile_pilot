@@ -1,16 +1,18 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 
 import 'app.dart';
 
 export 'app.dart' show MobilePilotApp;
-export 'features/setup/presentation/accessibility_setup_page.dart'
+export 'features/setup/presentation/screen/accessibility_setup_page.dart'
     show AccessibilitySetupPage;
-export 'features/device/presentation/command_page.dart' show CommandPage;
+export 'features/device/presentation/screen/command_page.dart' show CommandPage;
 
-// Keep the existing test screens as the default while the production UI is
-// being built. Set to false to preview its separate entry point.
-const bool useDebugUi = true;
+// Set to true to open the existing diagnostic screens instead of Home.
+const bool useDebugUi = false;
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await EasyLocalization.ensureInitialized();
   runApp(const MobilePilotApp(useDebugUi: useDebugUi));
 }

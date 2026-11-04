@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_edge_ai/flutter_edge_ai.dart';
 
 import '../data/ai_model_service.dart';
+import '../data/model_download.dart';
 
 import '../data/ai_task_journal.dart';
 import '../../../core/platform/ai_task_overlay.dart';
@@ -131,12 +132,43 @@ class AiTaskController extends Cubit<AiTaskState> {
     }
   }
 
+  Future<void> refreshSavedModels() => _checkSaved();
+
+  /// Model management shares the same execution lock as local and cloud tasks.
+  Future<void> changeModel(Future<void> Function() change) async {
+    if (isClosed || state.busy || _externalOverlay || _operation != null) {
+      throw StateError('Another AI operation is running');
+    }
+    await _run(() async {
+      final revision = service.modelRevision;
+      final previousStatus = state.status;
+      _update(state.copyWith(busy: true, status: 'กำลังเตรียมโมเดล'));
+      try {
+        await change();
+      } finally {
+        _update(
+          state.copyWith(
+            busy: false,
+            ready: service.isReady,
+            saved: service.isReady && !service.usingNano ? true : state.saved,
+            visionReady: service.supportsImages,
+            status: revision == service.modelRevision
+                ? previousStatus
+                : (service.isReady ? 'โมเดลพร้อมใช้งาน' : 'ยังไม่ได้โหลดโมเดล'),
+            answer: revision == service.modelRevision ? state.answer : '',
+            messages: revision == service.modelRevision
+                ? state.messages
+                : const [],
+            clearChoice: revision != service.modelRevision,
+          ),
+        );
+      }
+    });
+  }
+
   Future<void> download(String url, ModelType type) {
-    final uri = Uri.tryParse(url.trim());
-    if (uri == null ||
-        uri.scheme != 'https' ||
-        uri.host.isEmpty ||
-        !uri.path.toLowerCase().endsWith('.litertlm')) {
+    final uri = parseModelDownloadUri(url);
+    if (uri == null) {
       _update(
         state.copyWith(status: 'กรุณาใส่ลิงก์ HTTPS ของไฟล์ .litertlm โดยตรง'),
       );

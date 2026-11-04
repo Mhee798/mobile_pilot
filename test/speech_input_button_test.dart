@@ -1,3 +1,7 @@
+import 'dart:async';
+
+import 'helpers/localized_test_app.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,13 +23,15 @@ void main() {
       });
       final controller = TextEditingController();
       await tester.pumpWidget(
-        MaterialApp(
+        LocalizedTestApp(
           home: Scaffold(
             body: SpeechInputButton(controller: controller, enabled: true),
           ),
         ),
       );
+      await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('mic-level-ring')), findsNothing);
+      await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('พูดเป็นข้อความ'));
       await tester.pumpAndSettle();
       await messenger.handlePlatformMessage(
@@ -78,12 +84,13 @@ void main() {
     });
     final controller = TextEditingController();
     await tester.pumpWidget(
-      MaterialApp(
+      LocalizedTestApp(
         home: Scaffold(
           body: SpeechInputButton(controller: controller, enabled: true),
         ),
       ),
     );
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('พูดเป็นข้อความ'));
     await tester.pump();
     await tester.pump(const Duration(seconds: 4));
@@ -105,7 +112,7 @@ void main() {
     });
     final controller = TextEditingController();
     await tester.pumpWidget(
-      MaterialApp(
+      LocalizedTestApp(
         home: Builder(
           builder: (context) => Scaffold(
             body: Column(
@@ -125,6 +132,7 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('พูดเป็นข้อความ'));
     await tester.pump();
     await messenger.handlePlatformMessage(
@@ -136,6 +144,87 @@ void main() {
     await tester.tap(find.text('next page'));
     await tester.pumpAndSettle();
     expect(calls, contains('cancel'));
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 9));
+    controller.dispose();
+    messenger.setMockMethodCallHandler(channel, null);
+  });
+  testWidgets('stopping cancels the pending start-failure timeout', (
+    tester,
+  ) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'initialize') return true;
+      if (call.method == 'listen') return false;
+      return null;
+    });
+    final controller = TextEditingController();
+    await tester.pumpWidget(
+      LocalizedTestApp(
+        home: Scaffold(
+          body: SpeechInputButton(controller: controller, enabled: true),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('พูดเป็นข้อความ'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('หยุดฟังเสียง'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 4));
+    expect(find.text('เริ่มฟังเสียงไม่สำเร็จ กรุณาลองใหม่'), findsNothing);
+    expect(find.byTooltip('พูดเป็นข้อความ'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+    controller.dispose();
+    messenger.setMockMethodCallHandler(channel, null);
+  });
+
+  testWidgets('a delayed stop cannot reset a newer listening session', (
+    tester,
+  ) async {
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final stopped = Completer<void>();
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'initialize' || call.method == 'listen') return true;
+      if (call.method == 'stop') await stopped.future;
+      return null;
+    });
+    final controller = TextEditingController();
+    Widget page(bool enabled) => LocalizedTestApp(
+      home: Scaffold(
+        body: SpeechInputButton(controller: controller, enabled: enabled),
+      ),
+    );
+    Future<void> status(String value) => messenger.handlePlatformMessage(
+      channel.name,
+      codec.encodeMethodCall(MethodCall('notifyStatus', value)),
+      (_) {},
+    );
+    await tester.pumpWidget(page(true));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('พูดเป็นข้อความ'));
+    await tester.pump();
+    await status('listening');
+    await tester.pump();
+    await tester.tap(find.byTooltip('หยุดฟังเสียง'));
+    await tester.pump();
+    await status('notListening');
+    await tester.pump();
+    expect(
+      tester.widget<IconButton>(find.byType(IconButton)).onPressed,
+      isNull,
+    );
+    await tester.pumpWidget(page(false));
+    await tester.pumpWidget(page(true));
+    await tester.tap(find.byTooltip('พูดเป็นข้อความ'));
+    await tester.pump();
+    await status('listening');
+    await tester.pump();
+    stopped.complete();
+    await tester.pump();
+    expect(find.byTooltip('หยุดฟังเสียง'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(seconds: 9));
     controller.dispose();

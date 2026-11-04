@@ -1,3 +1,6 @@
+import 'helpers/localized_test_app.dart';
+
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -28,7 +31,12 @@ void main() {
   testWidgets('production entry is separate from existing debug screens', (
     tester,
   ) async {
-    await tester.pumpWidget(const MobilePilotApp(useDebugUi: false));
+    await tester.pumpWidget(
+      const MobilePilotApp(
+        translationLoader: TestTranslationLoader(),
+        useDebugUi: false,
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.textContaining('หน้าหลักกำลังพัฒนา'), findsOneWidget);
     expect(find.byType(AccessibilitySetupPage), findsNothing);
@@ -38,7 +46,9 @@ void main() {
   testWidgets(
     'Disabled accessibility shows setup and can refresh into commands',
     (tester) async {
-      await tester.pumpWidget(const MobilePilotApp());
+      await tester.pumpWidget(
+        const MobilePilotApp(translationLoader: TestTranslationLoader()),
+      );
       await tester.pumpAndSettle();
       expect(find.text('ยังไม่ได้เปิดใช้งาน'), findsOneWidget);
       expect(find.text('เปิดการตั้งค่า Accessibility'), findsOneWidget);
@@ -55,7 +65,9 @@ void main() {
     'Enabled accessibility opens commands and manual tap still works',
     (tester) async {
       accessibilityEnabled = true;
-      await tester.pumpWidget(const MobilePilotApp());
+      await tester.pumpWidget(
+        const MobilePilotApp(translationLoader: TestTranslationLoader()),
+      );
       await tester.pumpAndSettle();
       expect(find.byType(CommandPage), findsOneWidget);
       expect(find.text('ผลทดสอบ: ถูกแตะ 0 ครั้ง'), findsOneWidget);
@@ -72,7 +84,9 @@ void main() {
     tester,
   ) async {
     accessibilityEnabled = true;
-    await tester.pumpWidget(const MobilePilotApp());
+    await tester.pumpWidget(
+      const MobilePilotApp(translationLoader: TestTranslationLoader()),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('ทดสอบ AI'));
     await tester.pumpAndSettle();
@@ -92,7 +106,7 @@ void main() {
       find.text('กรุณาใส่ลิงก์ HTTPS ของไฟล์ .litertlm โดยตรง'),
       findsOneWidget,
     );
-    await tester.pageBack();
+    await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     expect(find.byType(CommandPage), findsOneWidget);
   });

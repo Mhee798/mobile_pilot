@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
 import '../../data/markdown_speech_text.dart';
+import '../../../../core/settings/app_settings.dart';
 
 /// Reads complete answers using the TTS engine installed on the device.
 class AnswerSpeechControls extends StatefulWidget {
@@ -60,6 +61,7 @@ class _AnswerSpeechControlsState extends State<AnswerSpeechControls> {
   }
 
   Future<void> _speak(String text) async {
+    final rate = AppSettingsScope.maybeOf(context)?.speechRate ?? 0.5;
     final operation = ++_operation;
     setState(() => _speaking = true);
     try {
@@ -72,6 +74,7 @@ class _AnswerSpeechControlsState extends State<AnswerSpeechControls> {
       }
       final language = await _tts.setLanguage('th-TH');
       if (language != 1) throw StateError('ตั้งค่าภาษาไทยไม่สำเร็จ');
+      await _tts.setSpeechRate(rate);
       await _tts.awaitSpeakCompletion(true);
       if (operation != _operation || !mounted) return;
       final spoken = markdownSpeechText(text);

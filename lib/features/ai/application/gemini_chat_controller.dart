@@ -1,12 +1,12 @@
+import '../../../core/ai/model_catalog.dart';
+
 import 'dart:async';
 import 'dart:collection';
 
 import 'package:firebase_ai/firebase_ai.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../../firebase_options.dart';
+import '../data/gemini_connection.dart';
 import '../data/ai_run_history.dart';
 import '../data/gemini_device_chat.dart';
 import '../data/conversation_store.dart';
@@ -59,7 +59,7 @@ class GeminiChatController extends ChangeNotifier {
   bool accessibilityNeeded = false;
   String progress = '';
   AiTaskPhase phase = AiTaskPhase.idle;
-  String model = 'gemini-3.5-flash-lite';
+  String model = defaultCloudModel;
   List<Map<String, String>> apps = [];
   Completer<String?>? _choice;
   bool _disposed = false;
@@ -216,16 +216,7 @@ class GeminiChatController extends ChangeNotifier {
 
   Future<void> _initializeFirebase() async {
     if (_initializeOverride != null) return _initializeOverride();
-    if (Firebase.apps.isEmpty) {
-      await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
-      );
-    }
-    await FirebaseAppCheck.instance.activate(
-      providerAndroid: kDebugMode
-          ? const AndroidDebugProvider()
-          : const AndroidPlayIntegrityProvider(),
-    );
+    await initializeGeminiConnection();
   }
 
   Future<String?> _cloudReply(String model, List<Content> conversation) async {

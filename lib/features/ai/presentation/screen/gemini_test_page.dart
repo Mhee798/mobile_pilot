@@ -1,3 +1,6 @@
+import '../../../models/presentation/model_selection_scope.dart';
+import '../../../models/domain/model_entry.dart';
+
 import 'dart:convert';
 import 'dart:typed_data' show BytesBuilder, Uint8List;
 
@@ -70,6 +73,13 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
         ),
       ),
     )..addListener(_onChatChanged);
+    final selectedModel = context
+        .getInheritedWidgetOfExactType<ModelSelectionScope>()
+        ?.notifier
+        ?.selection;
+    if (selectedModel?.location == ModelLocation.cloud) {
+      _chat.setModel(selectedModel!.id);
+    }
     _openConversationStore();
   }
 
@@ -272,15 +282,12 @@ class _GeminiTestPageState extends State<GeminiTestPage> {
                           DropdownButton<String>(
                             value: _model,
                             isExpanded: true,
-                            items: const [
-                              DropdownMenuItem(
-                                value: 'gemini-3.5-flash-lite',
-                                child: Text('Gemini 3.5 Flash-Lite'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'gemini-3.8-flash',
-                                child: Text('Gemini 3.8 Flash'),
-                              ),
+                            items: [
+                              for (final entry in cloudModels.entries)
+                                DropdownMenuItem(
+                                  value: entry.key,
+                                  child: Text(entry.value),
+                                ),
                             ],
                             onChanged: _busy
                                 ? null

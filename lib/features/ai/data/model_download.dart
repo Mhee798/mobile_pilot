@@ -1,5 +1,16 @@
 import 'dart:io';
 
+Uri? parseModelDownloadUri(String value) {
+  final uri = Uri.tryParse(value.trim());
+  if (uri == null ||
+      uri.scheme != 'https' ||
+      uri.host.isEmpty ||
+      !uri.path.toLowerCase().endsWith('.litertlm')) {
+    return null;
+  }
+  return uri;
+}
+
 class ModelDownloadProgress {
   const ModelDownloadProgress(this.received, this.total, this.elapsed);
 

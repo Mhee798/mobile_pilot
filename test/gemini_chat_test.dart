@@ -1,3 +1,5 @@
+import 'helpers/localized_test_app.dart';
+
 import 'package:firebase_ai/firebase_ai.dart';
 
 import 'package:flutter/material.dart';
@@ -38,8 +40,9 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      MaterialApp(home: GeminiTestPage(reply: (_, _) async => 'ok')),
+      LocalizedTestApp(home: GeminiTestPage(reply: (_, _) async => 'ok')),
     );
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(Switch).first);
     await tester.pumpAndSettle();
     expect(find.text('อนุญาตส่งภาพหน้าจอให้ Gemini'), findsOneWidget);
@@ -52,10 +55,11 @@ void main() {
   testWidgets('cloud messages are recorded in run history', (tester) async {
     final history = _History();
     await tester.pumpWidget(
-      MaterialApp(
+      LocalizedTestApp(
         home: GeminiTestPage(history: history, reply: (_, _) async => 'คำตอบ'),
       ),
     );
+    await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'สวัสดี');
     await tester.tap(find.byTooltip('ส่งข้อความ'));
     await tester.pumpAndSettle();
@@ -67,7 +71,7 @@ void main() {
   ) async {
     final requests = <List<Content>>[];
     await tester.pumpWidget(
-      MaterialApp(
+      LocalizedTestApp(
         home: GeminiTestPage(
           reply: (model, history) async {
             requests.add(history);
@@ -76,6 +80,7 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'ชื่อบี');
     await tester.tap(find.byTooltip('ส่งข้อความ'));
     await tester.pumpAndSettle();

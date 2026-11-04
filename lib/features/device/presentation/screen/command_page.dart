@@ -1,23 +1,23 @@
 import 'package:flutter/material.dart';
 
-import '../../ai/presentation/screen/ai_test_page.dart';
+import '../../../ai/presentation/screen/ai_test_page.dart';
 
-import 'controllers/app_launcher_controller.dart';
-import 'controllers/pinch_controller.dart';
-import 'widgets/pinch_controls_section.dart';
-import 'controllers/command_sequence_controller.dart';
-import 'widgets/command_sequence_section.dart';
-import 'controllers/device_controller.dart';
-import 'controllers/floating_controls_controller.dart';
-import 'controllers/screen_action_controller.dart';
-import 'controllers/screen_capture_controller.dart';
-import 'controllers/settings_test_controller.dart';
-import 'controllers/ui_tree_controller.dart';
-import 'controllers/wait_for_ui_controller.dart';
-import 'widgets/command_controls_card.dart';
-import 'widgets/screen_actions_section.dart';
-import 'widgets/screen_preview.dart';
-import 'widgets/ui_tree_section.dart';
+import '../controllers/app_launcher_controller.dart';
+import '../controllers/pinch_controller.dart';
+import '../widgets/pinch_controls_section.dart';
+import '../controllers/command_sequence_controller.dart';
+import '../widgets/command_sequence_section.dart';
+import '../controllers/device_controller.dart';
+import '../controllers/floating_controls_controller.dart';
+import '../controllers/screen_action_controller.dart';
+import '../controllers/screen_capture_controller.dart';
+import '../controllers/settings_test_controller.dart';
+import '../controllers/ui_tree_controller.dart';
+import '../controllers/wait_for_ui_controller.dart';
+import '../widgets/command_controls_card.dart';
+import '../widgets/screen_actions_section.dart';
+import '../widgets/screen_preview.dart';
+import '../widgets/ui_tree_section.dart';
 
 class CommandPage extends StatefulWidget {
   const CommandPage({super.key});

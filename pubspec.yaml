@@ -48,6 +48,8 @@ dependencies:
   speech_to_text: ^7.5.0
   markdown: ^7.3.1
   hive_ce: ^2.22.0
+  flutter_tabler_icons: ^1.43.0
+  easy_localization: ^3.0.8
 
 dev_dependencies:
   integration_test:
@@ -61,6 +63,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  shared_preferences: ^2.5.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -72,6 +75,8 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/translations/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
