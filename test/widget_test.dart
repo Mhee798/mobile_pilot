@@ -1,3 +1,4 @@
+import 'helpers/pump_ready_app.dart';
 import 'helpers/localized_test_app.dart';
 
 import 'package:flutter/material.dart';
@@ -31,14 +32,14 @@ void main() {
   testWidgets('production entry is separate from existing debug screens', (
     tester,
   ) async {
-    await tester.pumpWidget(
+    await pumpReadyApp(
+      tester,
       const MobilePilotApp(
         translationLoader: TestTranslationLoader(),
         useDebugUi: false,
       ),
     );
-    await tester.pumpAndSettle();
-    expect(find.textContaining('หน้าหลักกำลังพัฒนา'), findsOneWidget);
+    expect(find.text('สวัสดี'), findsOneWidget);
     expect(find.byType(AccessibilitySetupPage), findsNothing);
     expect(find.byType(CommandPage), findsNothing);
   });

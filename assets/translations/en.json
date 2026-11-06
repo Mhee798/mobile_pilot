@@ -7,7 +7,7 @@
     "accessibility": "Accessibility",
     "accessibility_description": "Read the screen and perform requested actions",
     "floating": "Floating controls",
-    "floating_description": "Show controls over other apps",
+    "floating_description": "Chat and follow AI tasks over other apps",
     "status_unknown": "Unable to check status",
     "appearance": "Appearance",
     "theme": "Theme",
@@ -46,6 +46,8 @@
     "search": "Search chats",
     "close": "Close menu",
     "new_chat": "New chat",
+    "open_app": "Open in app",
+    "open_app_failed": "Could not open MobilePilot",
     "recent": "Recent",
     "empty": "No conversations yet"
   },
@@ -54,9 +56,83 @@
     "sent": "Message sent: {text}"
   },
   "chat": {
+    "load_older": "Load older messages",
+    "search_results": "Results",
+    "search_today": "Today",
+    "search_age_day": {
+      "one": "{} day",
+      "other": "{} days"
+    },
+    "search_age_week": {
+      "one": "{} week",
+      "other": "{} weeks"
+    },
+    "search_age_month": {
+      "one": "{} month",
+      "other": "{} months"
+    },
+    "search_age_year": {
+      "one": "{} year",
+      "other": "{} years"
+    },
     "hint": "Type a request...",
     "photo": "Choose photo",
-    "file": "Choose file"
+    "file": "Choose file",
+    "read": "Read aloud",
+    "steps": "AUTOMATED SEQUENCE",
+    "running": "Running",
+    "failed": "Failed",
+    "returned": "Result received",
+    "stopping": "Stopping…",
+    "stop": "Stop response",
+    "send": "Send message",
+    "select_first": "Select a ready model to start chatting",
+    "voice_error": "Unable to read aloud. Check your device speech service.",
+    "menu": "Open menu",
+    "welcome": "Hello",
+    "intro": "What would you like help with today?",
+    "thinking": "Thinking…",
+    "unknown": "Unconfirmed",
+    "tools": {
+      "read_selected_file": "Read selected file",
+      "media_control": "Control media",
+      "open_map": "Open map",
+      "prepare_alarm": "Prepare alarm",
+      "open_link": "Open link",
+      "device_info": "Check device information",
+      "media_volume": "Adjust volume",
+      "report_observation": "Check screen observations",
+      "verify_goal": "Verify requested result",
+      "wait_for_ui": "Wait for screen",
+      "read_current_ui": "Read screen",
+      "read_ui_page": "Read next page",
+      "open_app": "Open app",
+      "open_system_settings": "Open device settings",
+      "find_apps": "Find apps",
+      "read_ui_snapshot": "Inspect screen",
+      "ui_action": "Interact with screen",
+      "other": "Perform action"
+    },
+    "settings_error": "Unable to open settings",
+    "accessibility": "Enable Accessibility to use device tools",
+    "preparing_model": "Preparing {model}…",
+    "accessibility_disabled": "MobilePilot Accessibility is disabled. Enable it to continue controlling the screen.",
+    "storage_error": "Chat storage is unavailable. Changes may not survive closing the app.",
+    "attachment_error": "Unable to attach file (images up to 20 MB; UTF-8 text up to 1 MB): {error}",
+    "no_vision": "This model cannot read images. Choose a model with image support.",
+    "retry": "Try again",
+    "retry_notice": "This sends the request again. Some device actions may already have completed. The assistant must check the current screen before taking further actions.",
+    "cancel": "Cancel",
+    "delete_title": "Delete conversation?",
+    "delete_notice": "This removes the saved conversation and its attachments.",
+    "delete": "Delete",
+    "copy": "Copy",
+    "copied": "Copied",
+    "image_error": "Unable to display image",
+    "latest": "Latest message",
+    "step_details": "Step details",
+    "attachment_notice": "Cloud attachments are sent to the selected provider.",
+    "no_results": "No matching conversations"
   },
   "speech": {
     "stop": "Stop listening",
@@ -126,6 +202,7 @@
     "url_error": "Enter a direct HTTPS link to a .litertlm file.",
     "download_hint": "Sizes are approximate. Ensure sufficient free storage. Completed downloads are saved to your library and loaded for selection.",
     "choose": "Choose model",
-    "cloud_checked": "Connection checked"
+    "cloud_checked": "Connection checked",
+    "saved_missing": "The previously selected model is missing from the library. Choose another model."
   }
 }

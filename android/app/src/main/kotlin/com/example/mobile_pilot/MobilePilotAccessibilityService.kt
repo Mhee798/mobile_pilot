@@ -2,13 +2,18 @@ package com.example.mobile_pilot
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Path
 import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.util.DisplayMetrics
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
@@ -16,9 +21,17 @@ import android.view.inputmethod.InputMethodManager
 
 class MobilePilotAccessibilityService : AccessibilityService() {
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val floatingControls = FloatingControlsController(
-        this, mainHandler, ::performFloatingAction, ::stopFromFloatingControls,
+    private val floatingControls = FlutterChatOverlay(
+        this, mainHandler, ::performFloatingAction,
     )
+    private var watchingScreen = false
+    private var screenOff = false
+    private val screenEvents = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            screenOff = intent.action == Intent.ACTION_SCREEN_OFF
+            refreshFloatingVisibility()
+        }
+    }
 
     private val sessions = CommandSessionController(mainHandler, ::cancelPendingCommands)
     private val uiTree = UiTreeController(this)
@@ -34,11 +47,27 @@ class MobilePilotAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         activeService = this
-        if (isFloatingControlsEnabled()) floatingControls.show()
+        if (!watchingScreen) {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_USER_PRESENT)
+            }
+            if (Build.VERSION.SDK_INT >= 33) {
+                registerReceiver(screenEvents, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(screenEvents, filter)
+            }
+            watchingScreen = true
+        }
+        refreshFloatingVisibility()
         AiTaskOverlayBridge.refresh()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            refreshFloatingVisibility()
+        }
         screenCapture.onAccessibilityEvent(event)
         actionQueue.onAccessibilityEvent(event)
         settingsTest.onAccessibilityEvent(event)
@@ -47,6 +76,10 @@ class MobilePilotAccessibilityService : AccessibilityService() {
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
+        if (watchingScreen) {
+            unregisterReceiver(screenEvents)
+            watchingScreen = false
+        }
         sessions.cancel()
         uiWait.cancel()
         targetApps.cancelWaiting()
@@ -77,8 +110,8 @@ class MobilePilotAccessibilityService : AccessibilityService() {
             return TapResult(true, "FLOATING_DISABLED", "ปิดปุ่มลอยแล้ว")
         }
 
-        return if (floatingControls.show()) {
-            TapResult(true, "FLOATING_ENABLED", "เปิดปุ่มลอยแล้ว แตะ MP เพื่อเปิดแผงคำสั่ง")
+        return if (refreshFloatingVisibility()) {
+            TapResult(true, "FLOATING_ENABLED", "เปิดหน้าลอยแล้ว แตะ MobilePilot เพื่อเปิดแชท")
         } else {
             getSharedPreferences(FLOATING_CONTROLS_PREFS, MODE_PRIVATE)
                 .edit()
@@ -87,6 +120,16 @@ class MobilePilotAccessibilityService : AccessibilityService() {
             TapResult(false, "FLOATING_FAILED", "Android เพิ่มปุ่มลอยไม่ได้")
         }
     }
+
+    fun refreshFloatingVisibility(): Boolean {
+        val visible = isFloatingControlsEnabled() &&
+            !MainActivity.isVisible && !screenOff &&
+            getSystemService(PowerManager::class.java)?.isInteractive == true &&
+            getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == false
+        return floatingControls.setVisible(visible)
+    }
+
+    fun collapseFloatingChat() = floatingControls.collapseForTool()
 
     fun navigateGlobally(action: String): TapResult {
         if (action != "home" && action != "recents") {
@@ -204,12 +247,6 @@ class MobilePilotAccessibilityService : AccessibilityService() {
             TapResult(true, "NO_PENDING_ACTION", "ไม่มีคำสั่งที่รออยู่")
         }
         floatingControls.setStatus(actionQueue.lastPointTapResult?.message ?: "ยกเลิกแล้ว")
-    }
-
-    private fun stopFromFloatingControls() {
-        // Revoke native work immediately, then ask the model to stop generating.
-        AiTaskOverlayBridge.requestStop()
-        cancelPendingCommands()
     }
 
     fun setAiTaskStatus(message: String) = floatingControls.setAiStatus(message)

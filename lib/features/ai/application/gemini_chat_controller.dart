@@ -19,8 +19,18 @@ typedef GeminiReply = Future<String?> Function(
 );
 
 class GeminiMessage {
-  const GeminiMessage(this.text, {required this.user, this.error = false});
+  const GeminiMessage(
+    this.text, {
+    required this.user,
+    this.error = false,
+    this.image,
+    this.contextText,
+    this.mimeType = 'image/jpeg',
+  });
   final String text;
+  final Uint8List? image;
+  final String? contextText;
+  final String mimeType;
   final bool user;
   final bool error;
 }
@@ -96,6 +106,7 @@ class GeminiChatController extends ChangeNotifier {
 
   void reset() {
     if (busy) return;
+    _deviceChat.selectTextFile(null, null);
     _history.clear();
     _messages.clear();
     _savedMessages.clear();
@@ -167,6 +178,29 @@ class GeminiChatController extends ChangeNotifier {
     _changed();
   }
 
+  void restoreMessages(List<GeminiMessage> values) {
+    if (busy) return;
+    reset();
+    _messages.addAll(values);
+    for (var i = 0; i < values.length; i++) {
+      final message = values[i];
+      if (message.error ||
+          (message.user && (i + 1 >= values.length || values[i + 1].error))) {
+        continue;
+      }
+      _history.add(
+        message.user
+            ? Content.multi([
+                TextPart(message.contextText ?? message.text),
+                if (message.image != null)
+                  InlineDataPart(message.mimeType, message.image!),
+              ])
+            : Content.model([TextPart(message.text)]),
+      );
+    }
+    _changed();
+  }
+
   void setModel(String value) {
     if (busy || value == model) return;
     model = value;
@@ -188,9 +222,12 @@ class GeminiChatController extends ChangeNotifier {
 
   void selectTextFile(String? name, String? content) {
     if (busy) return;
-    _deviceChat.selectTextFile(name, content);
     reset();
+    _deviceChat.selectTextFile(name, content);
   }
+
+  void setAttachedText(String name, String content) =>
+      _deviceChat.selectTextFile(name, content);
 
   void resolveChoice(String? packageName) {
     final choice = _choice;
@@ -228,9 +265,18 @@ class GeminiChatController extends ChangeNotifier {
   }
 
   /// Returns false when another task owns the shared device controls.
-  bool send(String input) {
+  bool send(
+    String input, {
+    Uint8List? image,
+    String mimeType = 'image/jpeg',
+    String? fileText,
+  }) {
     final text = input.trim();
-    if (_disposed || busy || text.isEmpty) return false;
+    if (_disposed ||
+        busy ||
+        (text.isEmpty && image == null && fileText == null)) {
+      return false;
+    }
     if (taskController != null && !taskController!.beginExternalTask(stop)) {
       return false;
     }
@@ -239,15 +285,37 @@ class GeminiChatController extends ChangeNotifier {
     accessibilityNeeded = false;
     progress = 'Gemini กำลังตอบ...';
     _setPhase(AiTaskPhase.thinking);
-    _messages.add(GeminiMessage(text, user: true));
+    _messages.add(
+      GeminiMessage(text, user: true, image: image, mimeType: mimeType),
+    );
     _changed();
     taskController?.updateExternalTask('Gemini กำลังตอบ');
-    unawaited(_run(text));
+    unawaited(
+      _run(
+        text,
+        Content.multi([
+          TextPart('$text${fileText ?? ''}'),
+          if (image != null) InlineDataPart(mimeType, image),
+        ]),
+      ),
+    );
     return true;
   }
 
-  Future<void> _run(String text) async {
-    final userContent = Content.text(text);
+  Future<void> _run(String text, Content userContent) async {
+    int? responseIndex;
+    void showResponse(String value, {bool error = false}) {
+      if (_disposed) return;
+      final message = GeminiMessage(value, user: false, error: error);
+      if (responseIndex == null) {
+        responseIndex = _messages.length;
+        _messages.add(message);
+      } else {
+        _messages[responseIndex!] = message;
+      }
+      _changed();
+    }
+
     final timer = Stopwatch()..start();
     String? runId;
     var runState = 'responded';
@@ -258,7 +326,7 @@ class GeminiChatController extends ChangeNotifier {
         text,
         'Gemini Cloud · $model',
         tools: toolsEnabled,
-        image: false,
+        image: userContent.parts.any((part) => part is InlineDataPart),
       );
       if (stopRequested) throw StateError('ยกเลิกแล้ว');
       String? result;
@@ -275,6 +343,7 @@ class GeminiChatController extends ChangeNotifier {
             taskController?.updateExternalTask(value);
             _changed();
           },
+          onText: (value) => showResponse(value),
           onInference: () => _setPhase(AiTaskPhase.thinking),
           onToolStart: (_) => _setPhase(AiTaskPhase.usingTool),
           onOutcome: (state, reason) {
@@ -309,12 +378,9 @@ class GeminiChatController extends ChangeNotifier {
       if (answer == null || answer.isEmpty) {
         runState = 'failed';
         runReason = 'empty_response';
-        _messages.add(
-          const GeminiMessage(
-            'โมเดลไม่ได้ส่งข้อความตอบ ลองส่งใหม่อีกครั้ง',
-            user: false,
-            error: true,
-          ),
+        showResponse(
+          'โมเดลไม่ได้ส่งข้อความตอบ ลองส่งใหม่อีกครั้ง',
+          error: true,
         );
       } else {
         if (toolHistory != null && toolHistory.length > _history.length) {
@@ -327,7 +393,7 @@ class GeminiChatController extends ChangeNotifier {
             Content.model([TextPart(answer)]),
           ]);
         }
-        _messages.add(GeminiMessage(answer, user: false));
+        showResponse(answer);
         _savedMessages.addAll([
           GeminiMessage(text, user: true),
           GeminiMessage(answer, user: false),
@@ -340,12 +406,12 @@ class GeminiChatController extends ChangeNotifier {
       runState = stopRequested ? 'cancelled' : 'failed';
       runReason = '$error';
       if (!_disposed) {
-        _messages.add(
-          GeminiMessage(
-            'ส่งข้อความไม่สำเร็จ: $error',
-            user: false,
-            error: true,
-          ),
+        final partial = responseIndex == null
+            ? ''
+            : _messages[responseIndex!].text;
+        showResponse(
+          '$partial${partial.isEmpty ? '' : '\n\n'}ส่งข้อความไม่สำเร็จ: $error',
+          error: true,
         );
         _changed();
       }
@@ -389,8 +455,12 @@ class GeminiChatController extends ChangeNotifier {
     stopRequested = true;
     _setPhase(AiTaskPhase.stopping);
     resolveChoice(null);
-    if (toolsEnabled) _deviceChat.cancel();
-    progress = 'กำลังหยุด...';
+    try {
+      if (toolsEnabled) await _deviceChat.cancel();
+      progress = 'กำลังหยุด...';
+    } catch (error) {
+      progress = 'หยุดคำตอบแล้ว แต่ยืนยันการยกเลิกเครื่องมือไม่ได้: $error';
+    }
     taskController?.updateExternalTask('กำลังหยุด Gemini');
     _changed();
   }

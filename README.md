@@ -1,83 +1,68 @@
 # MobilePilot
 
-## Firebase setup for a new checkout
+MobilePilot is an Android AI agent that turns chat instructions into actions on your phone. Ask it to open an app, find a screen element, or enter a search query, then follow its tool steps and stop the task from the main chat or floating overlay.
 
-Firebase configuration is local and is not committed. To build the Android app,
-create or select a Firebase project, register the Android package
-`com.example.mobile_pilot`, and run `flutterfire configure` for that project.
-Generate `lib/firebase_options.dart` and place the Android configuration at
-`android/app/google-services.json`. Enable Firebase AI Logic and configure App
-Check for the app; debug builds use a registered App Check debug token, while
-release builds use Play Integrity. Never commit debug tokens or local Firebase
-configuration. The cloud feature requires network access and an enabled model.
+## Demos
 
-Gemini Nano is optional and requires a compatible Android device and AICore;
-the system may download its model when first prepared.
+| Demo | What the recording shows |
+| --- | --- |
+| [Play lo-fi in YouTube](doc/demos/MobilePilot-YouTube.mp4) · 16 s | A request starts in the floating chat. The chat collapses as Gemini starts using tools, and YouTube opens the *Chill Lofi Mix* video page. |
+| [Search for MacBook in Shopee](doc/demos/MobilePilot-Shopee.mp4) · 19 s | A request starts in the main chat. Gemini opens Shopee, enters `MacBook`, and reaches the search results while the floating bubble shows progress. |
 
-Gemini Cloud currently retains the conversation and tool results, including
-captured images, for the active chat. Long chats can grow in memory, token use
-and network traffic; start a new chat when needed. Bounded history with an
-explicit context handoff remains future work.
+Both clips were recorded on an Android phone and edited for length. They show the destinations reached in those runs.
 
-A new Flutter project.
+## Features
 
-## Getting Started
+- **Android device tools** for launching apps, reading the accessibility tree, waiting for UI changes, and performing supported text, tap, and gesture actions.
+- **Local and cloud models.** Import or download compatible LiteRT-LM models, use Gemini Cloud through Firebase AI Logic, or try Gemini Nano on supported devices.
+- **Floating chat** with the same active conversation and model as the main app. Send messages, choose an app when the agent asks, inspect tool steps, stop a run, or return to the main app.
+- **Persistent chat** with conversation search, drafts, image and file attachments, and retry. The interface supports Thai and English and light and dark themes.
 
-This project is a starting point for a Flutter application.
+## Architecture
 
-A few resources to get you started if this is your first Flutter project:
+```mermaid
+flowchart LR
+  Home["Flutter main chat"]
+  Overlay["Flutter floating chat"]
+  Model["Local or Gemini Cloud tool loop"]
+  Service["Kotlin Accessibility Service"]
+  Device["Android target app"]
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+  Overlay <-->|"Conversation bridge"| Home
+  Home <-->|"Messages and tool results"| Model
+  Model <-->|"Typed tools via platform channels"| Service
+  Service <-->|"UI tree, screenshots and actions"| Device
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+The Android layer checks that a UI reference still matches the target before using it. An accepted gesture and a verified outcome are tracked separately. The floating chat runs in a separate Flutter engine and shares conversation state through a native bridge.
 
+[Project structure](doc/architecture.md) · [AI tool guide](doc/AI-Tool-Guide.md)
 
-## App languages
+## Run locally
 
-The production Home, sidebar, chat input and settings support Thai and English
-using `easy_localization`. Thai is the initial language; an explicit selection
-in Settings > Appearance > App language is saved by the package.
+1. Install Flutter with Dart **3.13.7** or newer within Dart 3, plus the Android SDK. MobilePilot requires **Android 11 (API 30)** or newer. Use a physical device for cross-app control.
+2. Create a Firebase project, register the Android package `com.example.mobile_pilot`, and run `flutterfire configure` for that project. Generate `lib/firebase_options.dart` and place `google-services.json` in `android/app/`. These local configuration files are ignored by Git.
+3. For Gemini Cloud, enable Firebase AI Logic and configure App Check. Debug builds use a registered App Check debug token. Release builds use Play Integrity. Keep debug tokens private.
+4. Connect the device and run:
 
-Edit `assets/translations/th.json` and `assets/translations/en.json` together.
-Use `context.tr('section.key')` in widgets so text updates when the locale changes.
-Run `flutter test test/localization_test.dart test/settings_page_test.dart` to
-check catalog keys, placeholders, language switching and persistence.
+   ```sh
+   flutter pub get
+   flutter run
+   ```
 
-UI language is independent of AI conversations, dictation and the Thai TTS demo.
-The existing AI/device test screens retain their original text.
+5. Choose a model from the chat header or Settings. For device actions, enable the MobilePilot service in Android Accessibility settings. Enable the floating window in MobilePilot settings to use chat while another app is open.
 
+For local inference, import a compatible `.litertlm` file or select a model from the download catalog. Gemini Nano availability depends on the device and AICore.
 
-## Model picker
+## Testing and limits
 
-Open Models from the Home title or Settings > AI > Model. Local `.litertlm`
-files are streamed into the app's `model_library` directory and indexed in
-`model_library_v1` (Hive). Downloads and imported files share the same library. Completed transfer metadata
-is written before the staging-file rename, so startup can finish a committed
-rename and remove abandoned numeric `.partial` files. Unindexed complete model
-files and unrelated staging files are retained.
-The file's model family and image-mode preference are explicit at import.
-Files outside this library can be loaded as legacy entries but cannot be deleted
-from the picker.
+```sh
+flutter analyze
+flutter test
+```
 
-The selected configuration is persisted separately from runtime readiness:
-after restart, tap a selection to load it or check cloud access again. File
-switches install without activating first, release the previous runtime, open
-the new one, then commit the SDK identity. If opening fails, the previous runtime
-is restored when possible; changing runtimes starts a fresh conversation context.
+- Device-control outcomes depend on the target app, accessibility data, Android version, and permissions. The demos are individual observed runs. The roadmap tracks a repeatability target of at least 9 successful runs out of 10 for the same workflow.
+- Background execution depends on Android and the selected model. The task journal can report interruptions after reopening. Gemini Nano inference is subject to foreground restrictions.
+- UI text and screenshots can contain private data. When using cloud models, review the available screenshot-sharing settings and use harmless tasks for demos. Per-action approvals for consequential actions are planned.
 
-Nano availability is probed without downloading. Only Prepare and use requests
-OS preparation. Cloud selection checks Gemini access through the existing Firebase
-configuration using a fixed token-count request; it never sends chat history.
-This marks the connection as checked, not a guarantee of inference quota.
-Deleting an owned model unregisters its SDK identity before deleting its file.
-The cloud test chat inherits the selected cloud model. The production Home chat
-input remains a UI preview.
-
-Model catalog references:
-- https://aistudio.google.com/docs/models
-- https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm
-- https://huggingface.co/litert-community/gemma-4-E4B-it-litert-lm
+[Testing evidence](doc/Testing.md) · [Model testing](doc/Model-Testing-Results.md) · [Roadmap](doc/MobilePilot-Plan.md) · [Action risk policy](doc/Action-Risk-Policy.md)

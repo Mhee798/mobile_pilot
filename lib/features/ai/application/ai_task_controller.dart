@@ -65,27 +65,28 @@ class AiTaskController extends Cubit<AiTaskState> {
 
   final AiTaskOverlay? _overlay;
   bool _externalOverlay = false;
+  bool _closing = false;
 
   /// Temporarily routes the shared Android status and stop button to cloud AI.
   bool beginExternalTask(Future<void> Function() stop) {
-    if (_externalOverlay || state.busy || isClosed) return false;
+    if (_closing || _externalOverlay || state.busy || isClosed) return false;
     _externalOverlay = true;
     _overlay?.listen(stop);
     return true;
   }
 
   void updateExternalTask(String status) {
-    if (_externalOverlay) {
+    if (!_closing && !isClosed && _externalOverlay) {
       unawaited(_overlay?.publish(status: status, running: true));
     }
   }
 
   void setExternalPhase(AiTaskPhase phase) {
-    if (_externalOverlay) taskPhase.value = phase;
+    if (!_closing && !isClosed && _externalOverlay) taskPhase.value = phase;
   }
 
   void endExternalTask(String status) {
-    if (!_externalOverlay) return;
+    if (_closing || isClosed || !_externalOverlay) return;
     _externalOverlay = false;
     _overlay?.listen(stopGeneration);
     unawaited(_overlay?.publish(status: status, running: false));
@@ -338,7 +339,7 @@ class AiTaskController extends Cubit<AiTaskState> {
     }
   });
 
-  Future<void> send(String input, {Uint8List? image}) {
+  Future<void> send(String input, {Uint8List? image, String? displayText}) {
     final text = input.trim();
     if (state.busy || !state.ready || (text.isEmpty && image == null)) {
       return Future.value();
@@ -352,13 +353,16 @@ class AiTaskController extends Cubit<AiTaskState> {
       return Future.value();
     }
     _pendingAppRequest = null;
-    return _run(() => _generateReply(text, image: image));
+    return _run(
+      () => _generateReply(text, image: image, displayText: displayText),
+    );
   }
 
   Future<void> _generateReply(
     String text, {
     Uint8List? image,
     bool showUserMessage = true,
+    String? displayText,
   }) async {
     taskPhase.value = AiTaskPhase.thinking;
     service.deviceTools.clearPendingChoice();
@@ -375,7 +379,11 @@ class AiTaskController extends Cubit<AiTaskState> {
         messages: [
           ...state.messages,
           if (showUserMessage)
-            AiChatMessage(isUser: true, text: text, image: image),
+            AiChatMessage(
+              isUser: true,
+              text: displayText ?? text,
+              image: image,
+            ),
           const AiChatMessage(isUser: false, text: ''),
         ],
       ),
@@ -620,6 +628,34 @@ class AiTaskController extends Cubit<AiTaskState> {
     }
   }
 
+  Future<void> restoreChat(
+    List<AiChatMessage> messages, {
+    String? contextTranscript,
+  }) => _run(() async {
+    if (state.busy) return;
+    _update(state.copyWith(busy: true));
+    try {
+      final transcript = messages
+          .map((m) => '${m.isUser ? 'User' : 'Assistant'}: ${m.text}')
+          .join('\n');
+      await service.restoreChatContext(contextTranscript ?? transcript);
+      _pendingAppRequest = null;
+      taskPhase.value = AiTaskPhase.idle;
+      _update(
+        state.copyWith(
+          messages: List.of(messages),
+          answer: '',
+          toolsUsed: [],
+          toolResults: [],
+          clearChoice: true,
+          accessibilityNeeded: false,
+        ),
+      );
+    } finally {
+      _update(state.copyWith(busy: false));
+    }
+  });
+
   Future<void> resetChat() => _run(() async {
     _pendingAppRequest = null;
     _update(state.copyWith(busy: true, status: 'กำลังเริ่มแชทใหม่'));
@@ -688,13 +724,21 @@ class AiTaskController extends Cubit<AiTaskState> {
       );
       try {
         final result = await service.openSelectedApp(packageName);
-        final resultText = switch (result['status']) {
-          'opened' => 'เปิด ${app['label']} แล้ว และยืนยันว่าอยู่ด้านหน้า',
-          'unconfirmed' =>
-            'ส่งคำสั่งเปิด ${app['label']} แล้ว แต่ยังยืนยันว่าอยู่ด้านหน้าไม่ได้',
-          _ =>
-            'เปิด ${app['label']} ไม่สำเร็จ: ${result['message'] ?? 'ไม่ทราบข้อผิดพลาด'}',
-        };
+        final accessibilityDisabled =
+            result['code'] == 'ACCESSIBILITY_DISABLED';
+        if (accessibilityDisabled) {
+          _update(state.copyWith(accessibilityNeeded: true));
+        }
+        final resultText = accessibilityDisabled
+            ? 'ยังไม่ได้เปิด MobilePilot Accessibility กรุณาเปิดในการตั้งค่า Android ก่อนควบคุมเครื่องต่อ ตอนนี้ยังยืนยันผลการเปิดแอปไม่ได้'
+            : switch (result['status']) {
+                'opened' =>
+                  'เปิด ${app['label']} แล้ว และยืนยันว่าอยู่ด้านหน้า',
+                'unconfirmed' =>
+                  'ส่งคำสั่งเปิด ${app['label']} แล้ว แต่ยังยืนยันว่าอยู่ด้านหน้าไม่ได้',
+                _ =>
+                  'เปิด ${app['label']} ไม่สำเร็จ: ${result['error'] ?? result['message'] ?? 'ไม่ทราบข้อผิดพลาด'}',
+              };
         service.recordChoiceResult(resultText);
         _update(
           state.copyWith(
@@ -766,6 +810,7 @@ class AiTaskController extends Cubit<AiTaskState> {
 
   @override
   Future<void> close() async {
+    _closing = true;
     await _overlaySubscription?.cancel();
     _overlay?.dispose();
     service.cancelDownload();

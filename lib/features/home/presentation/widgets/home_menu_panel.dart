@@ -12,8 +12,15 @@ class HomeMenuPanel extends StatelessWidget {
     this.onNewChat,
     this.onSearch,
     this.onSettings,
+    this.conversations = const [],
+    this.selectedConversation,
+    this.onOpen,
+    this.onDelete,
   });
 
+  final List<Map<String, dynamic>> conversations;
+  final String? selectedConversation;
+  final ValueChanged<String>? onOpen, onDelete;
   final VoidCallback onClose;
   final VoidCallback? onNewChat;
   final VoidCallback? onSearch;
@@ -74,10 +81,12 @@ class HomeMenuPanel extends StatelessWidget {
                   type: MaterialType.transparency,
                   child: InkWell(
                     borderRadius: BorderRadius.circular(24),
-                    onTap: () {
-                      onNewChat?.call();
-                      onClose();
-                    },
+                    onTap: onNewChat == null
+                        ? null
+                        : () {
+                            onNewChat?.call();
+                            onClose();
+                          },
                     child: Center(
                       child: Ink(
                         height: 48,
@@ -120,16 +129,44 @@ class HomeMenuPanel extends StatelessWidget {
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Text(
-                      context.tr('sidebar.empty'),
-                      style: TextStyle(
-                        color: colors.textSecondary,
-                        fontSize: 14,
+                  if (conversations.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        context.tr('sidebar.empty'),
+                        style: TextStyle(
+                          color: colors.textSecondary,
+                          fontSize: 14,
+                        ),
                       ),
                     ),
-                  ),
+                  for (final conversation in conversations)
+                    ListTile(
+                      selected: conversation['id'] == selectedConversation,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                      title: Text(
+                        '${conversation['title']}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                      subtitle: Text(
+                        '${(conversation['model'] as Map?)?['label'] ?? ''}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 11),
+                      ),
+                      onTap: onOpen == null
+                          ? null
+                          : () => onOpen!(conversation['id'] as String),
+                      trailing: IconButton(
+                        tooltip: context.tr('chat.delete'),
+                        icon: const Icon(Icons.delete_outline, size: 18),
+                        onPressed: onDelete == null
+                            ? null
+                            : () => onDelete!(conversation['id'] as String),
+                      ),
+                    ),
                 ],
               ),
             ),

@@ -86,19 +86,89 @@ void main() {
     expect(controller.models, isEmpty);
   });
 
+  for (final saved in [
+    const ModelSelection(ModelLocation.file, 'first', 'Test Gemma'),
+    const ModelSelection(ModelLocation.nano, 'nano', 'Gemini Nano'),
+    const ModelSelection(ModelLocation.cloud, 'cloud', 'Cloud'),
+  ]) {
+    test(
+      'automatically prepares saved ${saved.location.name} selection',
+      () async {
+        backend.saved = saved;
+        final restored = ModelSelectionController(backend);
+        addTearDown(restored.dispose);
+        await Future.wait([restored.initialize(), restored.initialize()]);
+        expect(restored.selection!.id, saved.id);
+        expect(restored.ready, isTrue);
+        final activation = switch (saved.location) {
+          ModelLocation.file => 'activate:first',
+          ModelLocation.nano => 'nano',
+          ModelLocation.cloud => 'cloud:cloud',
+        };
+        expect(backend.calls.where((call) => call == activation), hasLength(1));
+      },
+    );
+  }
+
+  test('saved model is not ready until startup activation finishes', () async {
+    backend.saved = const ModelSelection(
+      ModelLocation.file,
+      'first',
+      'Test Gemma',
+    );
+    backend.activationGate = Completer<void>();
+    final restored = ModelSelectionController(backend);
+    addTearDown(restored.dispose);
+    final starting = restored.initialize();
+    await Future<void>.delayed(Duration.zero);
+    expect(restored.busy, isTrue);
+    expect(restored.ready, isFalse);
+    await restored.selectCloud('other', 'Other');
+    expect(backend.calls, isNot(contains('cloud:other')));
+    backend.activationGate!.complete();
+    await starting;
+    expect(restored.busy, isFalse);
+    expect(restored.ready, isTrue);
+  });
+
   test(
-    'restores saved configuration without claiming a runtime is ready',
+    'failed startup preserves saved selection and permits manual retry',
     () async {
       backend.saved = const ModelSelection(
-        ModelLocation.cloud,
-        'cloud',
-        'Cloud',
+        ModelLocation.file,
+        'first',
+        'Test Gemma',
+      );
+      backend.failActivation = true;
+      final restored = ModelSelectionController(backend);
+      addTearDown(restored.dispose);
+      await restored.initialize();
+      expect(restored.ready, isFalse);
+      expect(restored.busy, isFalse);
+      expect(restored.selection!.id, 'first');
+      expect(restored.errorKey, 'models.operation_error');
+      backend.failActivation = false;
+      await restored.selectFile(testModel);
+      expect(restored.ready, isTrue);
+      expect(restored.errorKey, isNull);
+    },
+  );
+
+  test(
+    'missing saved library entry does not download or activate another model',
+    () async {
+      backend.saved = const ModelSelection(
+        ModelLocation.file,
+        'missing',
+        'Missing',
       );
       final restored = ModelSelectionController(backend);
+      addTearDown(restored.dispose);
       await restored.initialize();
-      expect(restored.selection!.id, 'cloud');
+      expect(restored.selection!.id, 'missing');
       expect(restored.ready, isFalse);
-      restored.dispose();
+      expect(restored.errorKey, 'models.saved_missing');
+      expect(backend.calls, isEmpty);
     },
   );
 

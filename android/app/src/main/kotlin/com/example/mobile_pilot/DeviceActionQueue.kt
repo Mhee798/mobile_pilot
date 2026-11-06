@@ -14,7 +14,7 @@ import com.example.mobile_pilot.MobilePilotAccessibilityService.TapResult
 class DeviceActionQueue(
     private val service: AccessibilityService,
     private val mainHandler: Handler,
-    private val floatingControls: FloatingControlsController,
+    private val floatingControls: FlutterChatOverlay,
     private val gestures: DeviceGestureController,
 ) {
     private var pointGestureInFlight = false

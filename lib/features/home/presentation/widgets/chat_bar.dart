@@ -61,10 +61,15 @@ class AudioWaveWidget extends StatelessWidget {
 /// - Send button: 40x40 circle, gradient (primaryCyan -> glowDeep), glow, icon: paper plane
 class ChatBar extends StatefulWidget {
   final void Function(String text)? onSend;
+  final bool Function(String text)? onSubmit;
+  final bool busy;
+  final bool stopping;
+  final VoidCallback? onStop;
+  final VoidCallback? onVoiceStart;
   final VoidCallback? onPhoto;
   final VoidCallback? onFile;
-  final VoidCallback? onAttachment;
   final Uint8List? imagePreviewBytes;
+  final Widget? attachmentPreview;
   final VoidCallback? onClearImage;
   final TextEditingController? controller;
   final FocusNode? focusNode;
@@ -74,10 +79,15 @@ class ChatBar extends StatefulWidget {
   const ChatBar({
     super.key,
     this.onSend,
+    this.onSubmit,
+    this.busy = false,
+    this.stopping = false,
+    this.onStop,
+    this.onVoiceStart,
     this.onPhoto,
     this.onFile,
-    this.onAttachment,
     this.imagePreviewBytes,
+    this.attachmentPreview,
     this.onClearImage,
     this.controller,
     this.focusNode,
@@ -137,10 +147,13 @@ class _ChatBarState extends State<ChatBar> {
 
   void _handleSend() {
     final text = _controller.text.trim();
-    final hasImage = widget.imagePreviewBytes != null;
+    final hasImage =
+        widget.imagePreviewBytes != null || widget.attachmentPreview != null;
 
-    if ((text.isNotEmpty || hasImage) && widget.enabled) {
-      widget.onSend?.call(text);
+    if ((text.isNotEmpty || hasImage) && widget.enabled && !widget.busy) {
+      final accepted = widget.onSubmit?.call(text) ?? (widget.onSend != null);
+      if (!accepted) return;
+      if (widget.onSubmit == null) widget.onSend?.call(text);
       widget.onClearImage?.call();
       _controller.clear();
     }
@@ -160,7 +173,9 @@ class _ChatBarState extends State<ChatBar> {
     final colors = context.appColors;
     final colorScheme = Theme.of(context).colorScheme;
     final hasTextOrImage =
-        _controller.text.trim().isNotEmpty || widget.imagePreviewBytes != null;
+        _controller.text.trim().isNotEmpty ||
+        widget.imagePreviewBytes != null ||
+        widget.attachmentPreview != null;
     final hasFocus = _focusNode.hasFocus;
 
     return SafeArea(
@@ -171,6 +186,7 @@ class _ChatBarState extends State<ChatBar> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (widget.attachmentPreview != null) widget.attachmentPreview!,
             // Optional image preview chip
             if (widget.imagePreviewBytes != null)
               Container(
@@ -240,7 +256,8 @@ class _ChatBarState extends State<ChatBar> {
                   child: Container(
                     constraints: const BoxConstraints(minHeight: 58),
                     decoration: BoxDecoration(
-                      color: colors.glassFill,
+                      // Reveal the conversation behind the frosted composer in both themes.
+                      color: colors.glassFill.withValues(alpha: .5),
                       borderRadius: BorderRadius.circular(24),
                       border: Border.all(
                         color: hasFocus
@@ -317,21 +334,19 @@ class _ChatBarState extends State<ChatBar> {
     );
   }
 
-  /// Plus attachment button with popup menu or callback
+  /// Plus attachment button with a popup menu.
   Widget _buildPlusButton(BuildContext context) {
     final colors = context.appColors;
     final colorScheme = Theme.of(context).colorScheme;
 
-    if (widget.onAttachment != null) {
-      return GestureDetector(
-        onTap: widget.enabled ? widget.onAttachment : null,
-        child: _plusContainer(context),
-      );
-    }
-
     return PopupMenuButton<int>(
-      enabled: widget.enabled,
-      offset: const Offset(0, -102),
+      enabled:
+          widget.enabled && (widget.onPhoto != null || widget.onFile != null),
+      requestFocus: false,
+      offset: Offset(
+        0,
+        widget.onPhoto != null && widget.onFile != null ? -102 : -54,
+      ),
       color: colorScheme.surfaceContainer,
       clipBehavior: Clip.antiAlias,
       padding: EdgeInsets.zero,
@@ -345,7 +360,7 @@ class _ChatBarState extends State<ChatBar> {
       itemBuilder: (context) => [
         if (widget.onPhoto != null)
           PopupMenuItem(
-            value: 2,
+            value: 1,
             onTap: widget.onPhoto,
             child: Row(
               children: [
@@ -382,7 +397,7 @@ class _ChatBarState extends State<ChatBar> {
             ),
           ),
       ],
-      child: _plusContainer(context),
+      child: TextFieldTapRegion(child: _plusContainer(context)),
     );
   }
 
@@ -443,7 +458,12 @@ class _ChatBarState extends State<ChatBar> {
                 tooltip: listening
                     ? context.tr('speech.stop')
                     : context.tr('speech.start'),
-                onPressed: onPressed,
+                onPressed: onPressed == null
+                    ? null
+                    : () {
+                        if (!listening) widget.onVoiceStart?.call();
+                        onPressed();
+                      },
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints.tightFor(
                   width: 40,
@@ -466,41 +486,96 @@ class _ChatBarState extends State<ChatBar> {
   Widget _buildSendButton(BuildContext context, bool hasTextOrImage) {
     final colors = context.appColors;
 
-    return GestureDetector(
-      onTap: widget.enabled && hasTextOrImage ? _handleSend : null,
-      child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 150),
-        opacity: hasTextOrImage ? 1.0 : 0.65,
-        child: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [colors.primaryCyan, colors.glowDeep],
-            ),
-            border: Border.all(color: colors.glassHairline, width: 1),
-            boxShadow: hasTextOrImage
-                ? [
-                    BoxShadow(
-                      color: colors.primaryCyan.withValues(alpha: 0.4),
-                      blurRadius: 10,
-                      offset: const Offset(1, 0),
-                      spreadRadius: -2,
-                    ),
-                    BoxShadow(
-                      color: colors.glowDeep.withValues(alpha: 0.3),
-                      blurRadius: 16,
-                      offset: const Offset(-1, 0),
-                      spreadRadius: -1,
-                    ),
-                  ]
-                : [],
+    if (widget.busy) {
+      return Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: const LinearGradient(
+            colors: [Color(0xFFF87171), Color(0xFFDC2626), Color(0xFF7F1D1D)],
+            stops: [0, .5, 1],
           ),
-          child: const Center(
-            child: Icon(TablerIcons.send_2, color: Colors.white, size: 20),
+          border: Border.all(color: Colors.white.withValues(alpha: .2)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x40F87171),
+              offset: Offset(0, 4),
+              blurRadius: 6,
+              spreadRadius: -4,
+            ),
+            BoxShadow(
+              color: Color(0x40F87171),
+              offset: Offset(0, 10),
+              blurRadius: 15,
+              spreadRadius: -3,
+            ),
+          ],
+        ),
+        child: IconButton(
+          tooltip: context.tr(widget.stopping ? 'chat.stopping' : 'chat.stop'),
+          onPressed: widget.stopping ? null : widget.onStop,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+          icon: widget.stopping
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : Container(
+                  width: 14,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.white, width: 2),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+        ),
+      );
+    }
+    return Semantics(
+      button: true,
+      label: context.tr('chat.send'),
+      child: GestureDetector(
+        onTap: widget.enabled && hasTextOrImage ? _handleSend : null,
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 150),
+          opacity: hasTextOrImage ? 1.0 : 0.65,
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [colors.primaryCyan, colors.glowDeep],
+              ),
+              border: Border.all(color: colors.glassHairline, width: 1),
+              boxShadow: hasTextOrImage
+                  ? [
+                      BoxShadow(
+                        color: colors.primaryCyan.withValues(alpha: 0.4),
+                        blurRadius: 10,
+                        offset: const Offset(1, 0),
+                        spreadRadius: -2,
+                      ),
+                      BoxShadow(
+                        color: colors.glowDeep.withValues(alpha: 0.3),
+                        blurRadius: 16,
+                        offset: const Offset(-1, 0),
+                        spreadRadius: -1,
+                      ),
+                    ]
+                  : [],
+            ),
+            child: const Center(
+              child: Icon(TablerIcons.send_2, color: Colors.white, size: 20),
+            ),
           ),
         ),
       ),

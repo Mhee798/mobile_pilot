@@ -1,3 +1,5 @@
+import 'helpers/pump_ready_app.dart';
+
 import 'package:easy_localization/easy_localization.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -127,13 +129,13 @@ void main() {
     tester,
   ) async {
     messenger.setMockMethodCallHandler(platform, (call) async => false);
-    await tester.pumpWidget(
+    await pumpReadyApp(
+      tester,
       const MobilePilotApp(
         useDebugUi: false,
         translationLoader: TestTranslationLoader(),
       ),
     );
-    await tester.pumpAndSettle();
     await tester.tap(find.byIcon(TablerIcons.menu_2));
     await tester.pumpAndSettle();
     await tester.tap(find.text('การตั้งค่า'));
@@ -142,7 +144,7 @@ void main() {
     await tester.tap(find.byTooltip('ย้อนกลับ'));
     await tester.pumpAndSettle();
     expect(find.byType(SettingsPage), findsNothing);
-    expect(find.textContaining('หน้าหลักกำลังพัฒนา'), findsOneWidget);
+    expect(find.text('สวัสดี'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
   testWidgets(

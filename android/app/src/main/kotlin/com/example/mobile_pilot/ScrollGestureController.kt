@@ -9,7 +9,7 @@ import android.os.Build
 /** Slow swipe with overlap, restricted to the visible scroll container. */
 class ScrollGestureController @JvmOverloads constructor(
     private val service: AccessibilityService,
-    private val floating: FloatingControlsController? = null,
+    private val floating: FlutterChatOverlay? = null,
 ) {
     fun dispatch(bounds: Rect, direction: String, fraction: Double, done: (Boolean) -> Unit): Boolean {
         if (Build.VERSION.SDK_INT < 24 || bounds.width() < 24 || bounds.height() < 100 ||

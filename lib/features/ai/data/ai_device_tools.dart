@@ -113,6 +113,42 @@ class AiDeviceTools {
     await _actions.openTarget(target);
   }
 
+  Future<Map<String, dynamic>?> _accessibilityFailure(
+    PlatformException failure,
+  ) async {
+    if (!{
+      'SERVICE_NOT_READY',
+      'SERVICE_UNAVAILABLE',
+      'TARGET_NOT_READY',
+    }.contains(failure.code)) {
+      return null;
+    }
+    try {
+      final enabled = await _platform.isAccessibilityServiceEnabled();
+      if (enabled == false) {
+        return {
+          'status': 'error',
+          'code': 'ACCESSIBILITY_DISABLED',
+          'accessibility_enabled': false,
+          'cause_code': failure.code,
+          'error': 'MobilePilot Accessibility is disabled. Tell the user to enable MobilePilot in Android Accessibility settings before continuing device control. Do not retry device actions until they enable it. Any previous app launch is not verified.',
+        };
+      }
+      if (enabled == true && failure.code != 'TARGET_NOT_READY') {
+        return {
+          'status': 'error',
+          'code': failure.code,
+          'accessibility_enabled': true,
+          'cause_message': failure.message,
+          'error': 'MobilePilot Accessibility is enabled, but the requested tool is unavailable. The service or target app may not be ready. Do not tell the user Accessibility is disabled.',
+        };
+      }
+    } catch (_) {
+      // An unavailable status check cannot establish that permission is off.
+    }
+    return null;
+  }
+
   /// Called only after the UI has checked that the user selected a candidate.
   Future<Map<String, dynamic>> openSelected(String packageName) async {
     clearPendingChoice();
@@ -124,10 +160,16 @@ class AiDeviceTools {
           : {'status': 'unconfirmed'};
     } on PlatformException catch (error) {
       _setTarget(null);
+      final accessibility = await _accessibilityFailure(error);
+      if (accessibility != null) return accessibility;
       if (error.code == 'TARGET_NOT_READY') {
         return {'status': 'unconfirmed', 'message': error.message};
       }
-      return {'status': 'error', 'message': error.message ?? error.code};
+      return {
+        'status': 'error',
+        'code': error.code,
+        'error': error.message ?? error.code,
+      };
     } on MissingPluginException {
       _setTarget(null);
       return {'status': 'error', 'message': 'ไม่พบเครื่องมือเปิดแอป'};
@@ -988,19 +1030,8 @@ class AiDeviceTools {
         'code': 'TIMEOUT',
       };
     } on PlatformException catch (error) {
-      if (error.code == 'SERVICE_NOT_READY' ||
-          error.code == 'SERVICE_UNAVAILABLE') {
-        try {
-          if (await _platform.isAccessibilityServiceEnabled() == false) {
-            return {
-              'code': 'ACCESSIBILITY_DISABLED',
-              'error': 'MobilePilot Accessibility is disabled. Ask the user to enable it in Android settings before using this tool.',
-            };
-          }
-        } catch (_) {
-          // Preserve the original service error when status cannot be checked.
-        }
-      }
+      final accessibility = await _accessibilityFailure(error);
+      if (accessibility != null) return accessibility;
       if (name == 'open_app' && error.code == 'TARGET_NOT_READY') {
         return {
           'status': 'unconfirmed',

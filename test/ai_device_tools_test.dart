@@ -22,6 +22,104 @@ void main() {
           .setMockMethodCallHandler(settings, null);
     },
   );
+  for (final selected in [false, true]) {
+    test(
+      'disabled Accessibility is reported after app launch failure, selected=$selected',
+      () async {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+              const MethodChannel('com.mobilepilot/settings'),
+              (call) async {
+                if (call.method == 'findLaunchableApps') {
+                  return [
+                    {'label': 'Target', 'packageName': 'example.target'},
+                  ];
+                }
+                if (call.method == 'isAccessibilityServiceEnabled') {
+                  return false;
+                }
+                if (call.method == 'launchApp') {
+                  throw PlatformException(
+                    code: 'TARGET_NOT_READY',
+                    message: 'Launch could not be verified',
+                  );
+                }
+                return null;
+              },
+            );
+        final tools = AiDeviceTools();
+        final result = selected
+            ? await tools.openSelected('example.target')
+            : await tools.execute('open_app', {'name': 'Target'});
+        expect(result['code'], 'ACCESSIBILITY_DISABLED');
+        expect(result['accessibility_enabled'], isFalse);
+        expect(result['cause_code'], 'TARGET_NOT_READY');
+        expect(result['error'], contains('enable MobilePilot'));
+        expect(tools.targetPackage, isNull);
+      },
+    );
+  }
+
+  test(
+    'enabled permission is not described as disabled when its service fails',
+    () async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+            const MethodChannel('com.mobilepilot/settings'),
+            (call) async {
+              if (call.method == 'isAccessibilityServiceEnabled') return true;
+              throw PlatformException(code: 'SERVICE_UNAVAILABLE');
+            },
+          );
+      final result = await AiDeviceTools(targetPackage: 'example.target')
+          .execute('read_current_ui', {});
+      expect(result['code'], 'SERVICE_UNAVAILABLE');
+      expect(result['accessibility_enabled'], isTrue);
+      expect(result['error'], contains('Accessibility is enabled'));
+    },
+  );
+
+  for (final enabled in [true, null]) {
+    test(
+      'unverified launch preserves uncertainty when permission is $enabled',
+      () async {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(
+              const MethodChannel('com.mobilepilot/settings'),
+              (call) async {
+                if (call.method == 'isAccessibilityServiceEnabled') {
+                  return enabled;
+                }
+                throw PlatformException(code: 'TARGET_NOT_READY');
+              },
+            );
+        final result = await AiDeviceTools().openSelected('example.target');
+        expect(result['status'], 'unconfirmed');
+        expect(result['code'], isNot('ACCESSIBILITY_DISABLED'));
+      },
+    );
+  }
+
+  test('failed permission check preserves the original tool failure', () async {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('com.mobilepilot/settings'),
+          (call) async {
+            if (call.method == 'isAccessibilityServiceEnabled') {
+              throw PlatformException(code: 'STATUS_UNAVAILABLE');
+            }
+            throw PlatformException(
+              code: 'SERVICE_UNAVAILABLE',
+              message: 'Original failure',
+            );
+          },
+        );
+    final result = await AiDeviceTools(targetPackage: 'example.target')
+        .execute('read_current_ui', {});
+    expect(result['code'], 'SERVICE_UNAVAILABLE');
+    expect(result['error'], 'Original failure');
+  });
+
   test('saved-screen tool is offered only when a saved screen exists', () {
     expect(
       AiDeviceTools().modelDefinitions.any(

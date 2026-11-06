@@ -45,15 +45,16 @@ Engine.
 > behavior, permissions, OS version, and app restrictions must be tested
 > on real devices.
 
-## Current Implementation Status — 2026-10-30 (Bangkok)
+## Current Implementation Status — 2026-11-07 (Bangkok)
 
-The project has manual controls, an on-device Gemma/LiteRT-LM chat and a
-separate Gemini Cloud test chat via Firebase AI Logic. The cloud chat uses a
-separate tool loop, not yet the same orchestrator as local inference. Users have
-confirmed several multi-step cloud tasks; device compatibility, background
-execution and reliable end-to-end completion still require more testing. The
-configured Firebase files are local and ignored by Git; a fresh checkout needs
-its own Firebase configuration.
+The main Flutter chat supports on-device models and Gemini Cloud through
+Firebase AI Logic. Local and cloud inference still have separate tool loops.
+The main chat and Flutter overlay share the selected model and active
+conversation. Chat history, drafts and attachments are stored locally.
+Firebase configuration remains local to each checkout.
+
+This update reflects the code and previously recorded test results.
+Real-device reliability for the current build remains to be measured.
 
 | Area | Status | Evidence / limit |
 | --- | --- | --- |
@@ -66,7 +67,8 @@ its own Firebase configuration.
 | Custom coordinate swipe | Implemented and device-tested | Selects normalized start/end points and 100–3000 ms duration; supports vertical, horizontal and diagonal straight-line swipes using the shared captured-screen queue. |
 | Coordinate long press | Implemented and device-tested | Queues a stationary 500–3000 ms gesture using captured app/display metadata; shares target settling, cancellation and expiry with point taps. |
 | Focused text entry | Verified on device | On 2026-10-26, `MP_SAFE_TEST_42` was inserted into Chrome's focused address field on a PTP N49. It was not submitted. Password fields are blocked. |
-| Floating controls | Implemented, basic | Accessibility service can show a draggable bubble and action panel, including cancel. Overlay behavior needs more device/app testing. |
+| Main chat | Implemented | Model selection, streaming replies, Stop, conversation search, retry, image and file attachments, and per-request tool steps. |
+| Floating chat | Implemented, device verification pending | Flutter overlay shares the main conversation and chat widgets. Supports drag to dismiss, new chat, opening the main app, choosing an app when AI asks, saved images and older message pagination. It collapses when a tool starts and hides on the lock screen or when the main app is visible. Verify the current keyboard, picker, microphone and overlay transitions on a phone. |
 | Deterministic command sequence | Implemented, basic | Explicitly launches one selected app, waits, reads a fresh tree, clicks one unique node and waits for a new result. Stops on failure, cancellation or stale references; no AI or persistent recovery. |
 | Local AI chat, tools and Vision | Prototype connected | Gemma model selection/download; 8K, 12K and 16K context settings and an experimental longer-context policy. Task context can be summarized and rotated; the runtime may also trim it. Local multi-step reliability remains inconsistent. |
 | Gemini Nano | Experimental; foreground only | AICore through ML Kit blocks inference when MobilePilot is not the top foreground app, including with a foreground service. The user observed `LocalAiGenerationException(30)` during a test. Continuous control after opening another app is therefore not supported by this integration; an overlay alone does not make MobilePilot the top app. Split-screen behavior is unverified. Add a clear in-app warning and handle this error explicitly. See [ML Kit GenAI background usage](https://developers.google.com/ml-kit/genai#background-usage). |
@@ -75,7 +77,7 @@ its own Firebase configuration.
 | Additional Android tools | Prototype; device verification pending | Read device/battery/storage data, read/set media volume, dispatch media keys, open user-supplied HTTP(S) links, map searches and alarm UI. Gemini can read a user-selected small UTF-8 text file; custom-scheme deep links, file editing and creation are not yet supported. Intent dispatch does not prove task completion. |
 | Screen-change handling | Implemented; device verification pending | For point actions, the revised image check compares the area around the point and relevant UI nodes; changed target content is rejected. Gemini stops after repeated screen-change failures. Animated-banner behavior needs a repeatable real-device fixture. |
 | Diagnostic history and export | Implemented | Retains recent requests, model labels, tool arguments/results, timing and status; supports JSON export. History is diagnostic, may be truncated, can contain private UI data, and is not a replay queue. |
-| Live Updates and task lifecycle | Partial | Local and cloud test chats publish progress and Stop through the shared overlay/notification. Presentation depends on OS, device and notification permission; background execution and process-death recovery are not guaranteed. A model response or dispatched action alone does not prove task completion. |
+| Live Updates and task lifecycle | Partial | Local and cloud chats publish progress and support Stop. The task journal can report an interrupted run after reopening. Independent task ownership, recovery behavior and device-specific notification presentation still need validation. |
 | Saved tool workflows | Planned | No saved workflow editor or persistent replay runner yet. The existing deterministic command sequence and AI diagnostic history do not provide this feature. |
 
 Recent scoped Flutter tests, Android shortcut unit tests, analysis and debug
@@ -181,6 +183,11 @@ UI and direct settings destinations vary by device.
    workflow runs without an AI request when all its steps are deterministic.
 
 ### Near-term priorities
+
+Start with the same Settings → Wi-Fi → verify destination workflow for ten
+runs on the target phone. Record targeting, dispatch and verification failures
+separately and compare the result with the MVP target of at least nine successes.
+Include a separate smoke test for the current floating chat and picker.
 
 1. Test the settings shortcut on the connected phone, including unsupported
    destinations, foreground confirmation and a subsequent UI read. Expand
@@ -685,12 +692,13 @@ can follow and stop the task.
         matches before launching.
 -   [x] Add manual screenshot preview and normalized coordinate selection.
 -   [ ] Add AI Vision fallback and validate model-provided coordinates.
--   [ ] Build the Flutter chat UI and tool-calling flow.
--   [ ] Show task status and verify the expected result after each action.
+-   [x] Build the Flutter chat UI and tool-calling flow.
+-   [x] Show task status and provide a user-visible Stop control.
+-   [ ] Verify the expected result after each important action on a real device.
 -   [x] Add a basic in-app screenshot preview using Android Accessibility
     screenshot capture.
 -   [x] Add action timeouts, cancellation for pending actions, and basic
-    error states. A user-visible task-wide Stop flow remains to be built.
+    error states.
 -   [ ] Establish a repeatable end-to-end demo and measure reliability across
     repeated real-device runs.
 
@@ -699,10 +707,12 @@ can follow and stop the task.
 Goal: keep task management independent from the visible chat screen.
 
 -   [ ] Add a task lifecycle independent of the chat widget/screen.
--   [ ] Add an ongoing-task notification where supported.
+-   [x] Add an ongoing-task notification where supported.
 -   [ ] Test minimizing the app, screen-off behavior, and app lifecycle
     changes.
--   [ ] Persist task metadata and restore it after reopening.
+-   [x] Persist interrupted-task metadata and report it after reopening.
+-   [ ] Verify interruption and recovery behavior across service termination
+    and process death.
 -   [ ] Handle service termination, revoked permissions, and required
     user intervention.
 -   [ ] Clearly report when a task cannot continue.
@@ -711,10 +721,10 @@ Goal: keep task management independent from the visible chat screen.
 
 Goal: let users observe and manage a task while using other apps.
 
--   [x] Add a draggable floating bubble and compact action panel through
-    AccessibilityService windows. This implementation does not request a
-    separate overlay permission.
--   [x] Add basic action controls and cancellation for pending actions.
+-   [x] Add a draggable floating bubble and expanded Flutter chat through
+    AccessibilityService windows.
+-   [x] Share the conversation, attachments, tool steps, app choices and Stop
+    between the main app and floating chat.
 -   [ ] Show task-wide status, approvals, and the latest verified result.
 -   [ ] Allow switching between Live View and Chat Mode.
 -   [ ] Complete overlay behavior, touch handling, and accessibility testing
@@ -778,7 +788,8 @@ The MVP is successful when:
     model-driven workflows separately before calling them reliable.
 5.  [x] Connect the current device controls to Flutter using Platform
     Channels.
-6.  [ ] Add persistent task state, task-wide Stop, and recovery.
+6.  [ ] Complete independent task ownership and recovery. Stop and the
+    interrupted-task journal are implemented.
 7.  [ ] Establish a repeatable real-device workflow and measure its
     reliability.
 8.  [ ] Harden background execution and floating controls, then add external

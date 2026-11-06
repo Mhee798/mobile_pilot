@@ -50,12 +50,34 @@ class ModelSelectionController extends ChangeNotifier {
       _models = library.models;
       selection = library.selection;
       loaded = true;
+      await _restoreSelection();
     } catch (failure) {
       errorKey = 'models.library_error';
       error = failure.toString();
       _initialization = null;
     }
     _changed();
+  }
+
+  Future<void> _restoreSelection() async {
+    final saved = selection;
+    if (saved == null || _disposed) return;
+    switch (saved.location) {
+      case ModelLocation.file:
+        final entry = _models
+            .where((model) => model.id == saved.id)
+            .firstOrNull;
+        if (entry == null) {
+          errorKey = 'models.saved_missing';
+          _changed();
+          return;
+        }
+        await selectFile(entry);
+      case ModelLocation.nano:
+        await selectNano();
+      case ModelLocation.cloud:
+        await selectCloud(saved.id, saved.label);
+    }
   }
 
   Future<void> probeNano() async {

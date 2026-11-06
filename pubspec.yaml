@@ -37,6 +37,7 @@ dependencies:
   flutter_edge_ai: 2.5.3
   flutter_edge_ai_litertlm: 1.18.0
   file_picker: 13.3.0
+  image_picker: ^1.2.4
   path_provider: ^2.1.6
   flutter_bloc: ^9.1.1
   firebase_core: ^5.1.0
@@ -52,6 +53,7 @@ dependencies:
   easy_localization: ^3.0.8
 
 dev_dependencies:
+  icons_launcher: ^3.1.0
   integration_test:
     sdk: flutter
   flutter_test:
@@ -77,6 +79,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/translations/
+    - assets/branding/mobilepilot_welcome_orb.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

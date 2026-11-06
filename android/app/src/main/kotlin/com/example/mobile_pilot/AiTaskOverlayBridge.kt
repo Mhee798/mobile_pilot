@@ -30,7 +30,8 @@ object AiTaskOverlayBridge {
                     } else {
                         running = active
                         status = "AI: ${message.take(240)}"
-                        if (active && Build.VERSION.SDK_INT >= 33 && !permissionRequested &&
+                        if (active && activity.hasWindowFocus() &&
+                            Build.VERSION.SDK_INT >= 33 && !permissionRequested &&
                             activity.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                             permissionRequested = true
                             activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 401)

@@ -34,14 +34,26 @@ abstract final class AppTheme {
         iconTheme: IconThemeData(color: scheme.onSurfaceVariant),
         dividerColor: scheme.outlineVariant,
         snackBarTheme: SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
+          insetPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           backgroundColor: scheme.surfaceContainerHigh,
-          contentTextStyle: TextStyle(color: colors.textPrimary),
+          elevation: 6,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: scheme.outlineVariant),
+          ),
+          contentTextStyle: TextStyle(
+            color: colors.textPrimary,
+            fontWeight: FontWeight.w500,
+          ),
+          actionTextColor: scheme.primary,
         ),
         extensions: [colors],
         progressIndicatorTheme: ProgressIndicatorThemeData(
           borderRadius: BorderRadius.circular(10),
           color: colors.primaryCyan,
           refreshBackgroundColor: colors.tertiaryBlue,
+          strokeCap: StrokeCap.round,
         ),
       );
 }

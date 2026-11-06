@@ -33,6 +33,7 @@ class FakeDeviceTools extends AiDeviceTools {
   Completer<void>? openGate;
   final opened = <String>[];
   String result = 'opened';
+  Map<String, dynamic>? openResult;
   String? testTarget;
   int readTargetOpens = 0;
   @override
@@ -46,7 +47,7 @@ class FakeDeviceTools extends AiDeviceTools {
   Future<Map<String, dynamic>> openSelected(String packageName) async {
     await openGate?.future;
     opened.add(packageName);
-    return {'status': result};
+    return openResult ?? {'status': result};
   }
 }
 
@@ -574,6 +575,31 @@ void main() {
       expect(cubit.state.pendingChoiceIndex, isNull);
     },
   );
+
+  test('selected app Accessibility failure is explained and offers permission action', () async {
+    final tools = FakeDeviceTools()
+      ..openResult = {
+        'status': 'error',
+        'code': 'ACCESSIBILITY_DISABLED',
+        'error': 'MobilePilot Accessibility is disabled.',
+      };
+    final service = FakeAiService(deviceTools: tools)..returnApps = true;
+    final cubit = AiTestCubit(service);
+    addTearDown(cubit.close);
+    await cubit.loadSaved();
+    await cubit.send('หา Shopee');
+    await cubit.chooseApp(cubit.state.pendingChoiceIndex!, 'example.shopee');
+    expect(cubit.state.accessibilityNeeded, isTrue);
+    expect(
+      cubit.state.messages.last.text,
+      contains('ยังไม่ได้เปิด MobilePilot Accessibility'),
+    );
+    expect(
+      cubit.state.messages.last.text,
+      contains('ยังยืนยันผลการเปิดแอปไม่ได้'),
+    );
+    expect(cubit.state.busy, isFalse);
+  });
 
   test('only the current ambiguous choices can be selected once', () async {
     final tools = FakeDeviceTools();

@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/platform/mobile_pilot_platform.dart';
@@ -42,7 +43,7 @@ class _AccessibilityRequiredActionState
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('เปิดการตั้งค่าไม่สำเร็จ')),
+          SnackBar(content: Text(context.tr('chat.settings_error'))),
         );
       }
     }
@@ -55,9 +56,21 @@ class _AccessibilityRequiredActionState
   }
 
   @override
-  Widget build(BuildContext context) => TextButton.icon(
-    onPressed: _open,
-    icon: const Icon(Icons.settings_accessibility),
-    label: const Text('เปิด Accessibility เพื่อใช้เครื่องมือ'),
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Semantics(
+        liveRegion: true,
+        child: Text(
+          context.tr('chat.accessibility_disabled'),
+          textAlign: TextAlign.center,
+        ),
+      ),
+      TextButton.icon(
+        onPressed: _open,
+        icon: const Icon(Icons.settings_accessibility),
+        label: Text(context.tr('chat.accessibility')),
+      ),
+    ],
   );
 }

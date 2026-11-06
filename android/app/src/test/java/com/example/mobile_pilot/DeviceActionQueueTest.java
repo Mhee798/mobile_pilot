@@ -15,12 +15,12 @@ import static org.mockito.Mockito.*;
 public class DeviceActionQueueTest extends NativeControllerTest {
     private DeviceActionQueue queue;
     private DeviceGestureController gestures;
-    private FloatingControlsController overlay;
+    private FlutterChatOverlay overlay;
 
     @Before
     public void createQueue() {
         gestures = mock(DeviceGestureController.class);
-        overlay = mock(FloatingControlsController.class);
+        overlay = mock(FlutterChatOverlay.class);
         queue = new DeviceActionQueue(service, handler, overlay, gestures);
         doAnswer(invocation -> {
             Function1<MobilePilotAccessibilityService.TapResult, Unit> callback = invocation.getArgument(5);
