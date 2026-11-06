@@ -2,6 +2,10 @@
 
 MobilePilot is an Android AI agent that turns chat instructions into actions on your phone. Ask it to open an app, find a screen element, or enter a search query, then follow its tool steps and stop the task from the main chat or floating overlay.
 
+## Screenshots
+
+<img src="doc/screenshots/main-chat.png" alt="MobilePilot main chat welcome screen" width="240"> <img src="doc/screenshots/model-picker.png" alt="MobilePilot model picker with on-device and cloud tabs" width="240">
+
 ## Demos
 
 | Demo | What the recording shows |
