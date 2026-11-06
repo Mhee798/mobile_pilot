@@ -8,10 +8,10 @@ MobilePilot is an Android AI agent that turns chat instructions into actions on 
 
 ## Demos
 
-| Demo | What the recording shows |
+| YouTube · 16 s | Shopee · 19 s |
 | --- | --- |
-| [Play lo-fi in YouTube](doc/demos/MobilePilot-YouTube.mp4) · 16 s | A request starts in the floating chat. The chat collapses as Gemini starts using tools, and YouTube opens the *Chill Lofi Mix* video page. |
-| [Search for MacBook in Shopee](doc/demos/MobilePilot-Shopee.mp4) · 19 s | A request starts in the main chat. Gemini opens Shopee, enters `MacBook`, and reaches the search results while the floating bubble shows progress. |
+| <img src="doc/demos/MobilePilot-YouTube.gif" alt="MobilePilot opens Chill Lofi Mix from floating chat" width="240"> | <img src="doc/demos/MobilePilot-Shopee.gif" alt="MobilePilot searches for MacBook in Shopee" width="240"> |
+| The floating chat collapses when Gemini starts using tools, and YouTube opens *Chill Lofi Mix*. [Full video](doc/demos/MobilePilot-YouTube.mp4) | Gemini opens Shopee and searches for `MacBook` while the floating bubble shows progress. [Full video](doc/demos/MobilePilot-Shopee.mp4) |
 
 Both clips were recorded on an Android phone and edited for length. They show the destinations reached in those runs.
 
