@@ -56,7 +56,19 @@ The Android layer checks that a UI reference still matches the target before usi
 
 5. Choose a model from the chat header or Settings. For device actions, enable the MobilePilot service in Android Accessibility settings. Enable the floating window in MobilePilot settings to use chat while another app is open.
 
-For local inference, import a compatible `.litertlm` file or select a model from the download catalog. Gemini Nano availability depends on the device and AICore.
+For local inference, import a compatible `.litertlm` file or select a model from the download catalog.
+
+## Model limitations
+
+| Model | What to expect in MobilePilot |
+| --- | --- |
+| **LiteRT-LM (on-device)** | Model files require local storage, and speed depends on the device and model. Image input is available when the loaded model supports it. In recorded Gemma trials, some multi-step tasks took longer, repeated tool calls, or ended without a verified result. |
+| **Gemini Nano (on-device, experimental)** | Availability depends on device support and AICore. In the tested integration, inference requires MobilePilot to be the foreground app. Once another app takes the foreground, the floating bubble alone cannot keep Nano inference running. |
+| **Gemini Cloud (Firebase AI Logic)** | Requires network access, working Firebase and App Check setup, and available model quota. Requests are processed in the cloud. Screen images are sent only when cloud screenshot sharing is enabled. |
+
+**LiteRT-LM context on the test device.** On a Snapdragon 8 Elite phone with 12 GB RAM, 8K tokens was the practical context setting when running tasks that involved multiple apps. Higher settings may cause MobilePilot to close unexpectedly in the same scenario. Start at 8K for cross-app tasks. The usable context depends on the model and available memory.
+
+The [model test notes](doc/Model-Testing-Results.md) describe the individual runs and their testing conditions.
 
 ## Testing and limits
 
@@ -66,7 +78,7 @@ flutter test
 ```
 
 - Device-control outcomes depend on the target app, accessibility data, Android version, and permissions. The demos are individual observed runs. The roadmap tracks a repeatability target of at least 9 successful runs out of 10 for the same workflow.
-- Background execution depends on Android and the selected model. The task journal can report interruptions after reopening. Gemini Nano inference is subject to foreground restrictions.
+- Background execution depends on Android and the selected model. The task journal can report interruptions after reopening.
 - UI text and screenshots can contain private data. When using cloud models, review the available screenshot-sharing settings and use harmless tasks for demos. Per-action approvals for consequential actions are planned.
 
 [Testing evidence](doc/Testing.md) · [Model testing](doc/Model-Testing-Results.md) · [Roadmap](doc/MobilePilot-Plan.md) · [Action risk policy](doc/Action-Risk-Policy.md)
